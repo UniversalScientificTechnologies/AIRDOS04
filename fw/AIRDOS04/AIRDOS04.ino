@@ -1,21 +1,21 @@
-#define TYPE "AIRDOS04A"
+#define TYPE "AIRDOS04C"
 #define DIGTYPE "BATDATUNIT01B"
 #define ADCTYPE "USTSIPIN03A"
 // Compiled with: Arduino 1.8.13
 // MightyCore 2.2.2
 
-#define MAJOR 1   // Data format
-#define MINOR 1   // Features
+#define MAJOR 2   // Data format
+#define MINOR 0   // Features
 #include "githash.h"
 
-//#define CALIBRATION
-//#define RADIATION_CLICK
-
+#define RADIATION_CLICK
+#define DEBUG
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
-#define CHANNELS 1024 // number of channels in the buffer for histogram
+#define CHANNELS 4 // number of channels in the buffer for histogram
+#define MAX_EVENTS 500 // number of events per integration time
 
 String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE);
 
@@ -108,7 +108,11 @@ String filename = "";
 uint16_t fn;
 uint16_t count = 0;
 boolean SDinserted = true;
-uint8_t histogram[CHANNELS];
+uint16_t histogram[CHANNELS];
+uint16_t event_time[MAX_EVENTS];
+uint8_t event_time2[MAX_EVENTS];
+uint16_t event_channel[MAX_EVENTS];
+uint16_t events_counter;
 uint8_t ADCconf1;
 uint8_t ADCconf2;
 uint8_t DIGconf1;
@@ -236,6 +240,10 @@ void EnvOut()
 
   wdt_disable();
 
+  #ifdef DEBUG
+    Serial1.println(dataString);  // Debug output to debug terminal        
+  #endif
+
   if (SDinserted)
   {
     // make sure that the default chip select pin is set to output
@@ -302,6 +310,10 @@ void BattOut()
   dataString += ",";
   dataString += String(readBat(0xc) * 0.1 - 273.15);   // temperature
 
+  #ifdef DEBUG
+    Serial1.println(dataString);  // Debug output to debug terminal        
+  #endif
+
   if (SDinserted)
   {
     // make sure that the default chip select pin is set to output
@@ -345,49 +357,46 @@ void DataOut()
   digitalWrite(SDpower, HIGH);   // SD card power on
   digitalWrite(SPI_MUX_SEL, LOW); // SDcard
 
-  uint16_t noise = 4;
-  uint32_t flux=0;
-
-  for(uint16_t n=noise; n<(CHANNELS); n++)
-  {
-    flux += histogram[n];
-  }
+  readRTC();
+  TCNT1 = 0;          // reset Timer 1 counter
 
   // make a string for assembling the data to log:
   String dataString = "";
+  dataString += "$DT,";
+  dataString += String(count);
+  dataString += ",";
+  dataString += String(event_time[0]);
+  dataString += "\r\n";
 
-  readRTC();
+  // Evens out
+  for(uint16_t n=1; n<events_counter; n++)
+  {
+     dataString += "$E,";
+     dataString += String(event_time2[n]);
+     dataString += ",";
+     dataString += String(event_time[n]);
+     dataString += ",";
+     dataString += String(event_channel[n]);
+     dataString += "\r\n";
+  }
 
-  // make a string for assembling the data to log:
+  // Histogram out
   dataString += "$HIST,";
   dataString += String(count);
   dataString += ",";
   dataString += String(tm);
   dataString += ".";
   dataString += String(tm_s100);
-  dataString += ",";
-  dataString += String(flux);
 
-  for(uint16_t n=0; n<(CHANNELS); n++)
+  for(uint16_t n=0; n<CHANNELS; n++)
   {
-/*
- if (n>600)
-    {
-    dataString += "\t,";
-    dataString += String(n);
-    dataString += "*";
-
-    }
-*/
-#ifdef CALIBRATION
-    dataString += "\t,";
-    dataString += String(n);
-    dataString += "*";
-#else
     dataString += ",";
-#endif
     dataString += String(histogram[n]);
   }
+
+  #ifdef DEBUG
+    Serial1.println(dataString);  // Debug output to debug terminal        
+  #endif
 
   if (SDinserted)
   {
@@ -411,7 +420,7 @@ void DataOut()
       // if the file is available, write to it:
       if (dataFile)
       {
-        dataFile.println(dataString);  // write to SDcard (800 ms)
+        dataFile.println(dataString);  // write to SDcard (800 ms)        
         dataFile.close();
       }
       // if the file isn't open, pop up an error:
@@ -909,13 +918,16 @@ while(true)
 
   cli(); // disable interrupts during setup
   // Configure Timer 1 interrupt
-  // F_clock = 8 MHz, prescaler = 1024, Fs = 0.125 Hz
+  // F_clock = 8 MHz, prescaler = 1024, Fs = 7.8125 kHz
   TCCR1A = 0;
   //TCCR1B = 1<<WGM12 | 0<<CS12 | 1<<CS11 | 1<<CS10;
   TCCR1B = 1<<WGM12 | 1<<CS12 | 0<<CS11 | 1<<CS10;
   // OCR1A = ((F_clock / prescaler) / Fs) - 1
   OCR1A = 39063;      // Set sampling frequency Fs, period 5 s
   //OCR1A = (62500/2)-1;      // Set sampling frequency Fs, period 4 s
+  event_time[0] = 0;
+  event_time2[0] = 0;
+  event_channel[0] = 0;
   TCNT1 = 0;          // reset Timer 1 counter
   TIMSK1 = 1<<OCIE1A; // Enable Timer 1 interrupt
   sei(); // re-enable interrupts
@@ -928,7 +940,8 @@ void loop()
   for(int n=0; n<CHANNELS; n++) // reset histogram
   {
     histogram[n]=0;
-  }
+  };
+  events_counter = 1; // reset event counter
 
   // dummy conversion
   digitalWrite(DSET, HIGH);
@@ -1004,11 +1017,12 @@ void loop()
 
         wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
 
-        DataOut();
+        DataOut();  // Save data from integration time
         for(int n=0; n<CHANNELS; n++) // reset histogram
         {
           histogram[n]=0;
         };
+        events_counter = 1; // Start events from 1 (because 0 is record of death time)
 
         if (env >= 5*6) // Environment out every 5 minutes
         {
@@ -1021,8 +1035,8 @@ void loop()
           batt = 0;
           BattOut();
         };
-
-        // dummy conversion
+        
+        // dummy conversion (reset ADC)
         digitalWrite(DSET, HIGH);
         digitalWrite(DRESET, LOW); // L on CONV
         SPI.transfer16(0x0000);
@@ -1030,9 +1044,13 @@ void loop()
 
         wdt_disable();
 
-        TCNT1 = 0;          // reset Timer 1 counter
-      }
+        uint16_t reltime = TCNT1;  // Record death time
+        event_time[0] = reltime;  
+        event_time2[0] = 0;
+        event_channel[0] = 0;
 
+        continue; // Continue with waiting for next peak detection
+      }
     };
     // Signal is going down, we can run ADC
     // delayMicroseconds(4); // This delay is done in cycle overhead
@@ -1040,15 +1058,23 @@ void loop()
     uint16_t adcVal = SPI.transfer16(0x0000); // 0c8000 +/GND, 0x0000 +/-
 
     #ifdef RADIATION_CLICK
-      if (adcVal>320) digitalWrite(BUZZER, HIGH); // buzzer click on ADC conversion.
+      if (adcVal>=CHANNELS) PORTD ^= 0x80; // digitalWrite(BUZZER, !digitalRead(BUZZER)); // buzzer click
     #endif
 
-    adcVal >>= 6;
-    if (histogram[adcVal]<255) histogram[adcVal]++;
+    if (adcVal<CHANNELS)  // Record single event if energy is above threshold
+    {   
+      histogram[adcVal]++;
+    }
+    else
+    {
+      uint16_t reltime = TCNT1;
+      //uint16_t reltime = TCNT1L;
+      //reltime |= TCNT1H<<8;
+      event_time[events_counter] = reltime;
+      event_time2[events_counter] = store;
+      event_channel[events_counter] = adcVal;
+      if (events_counter<(MAX_EVENTS-1)) events_counter++;
+    }
     digitalWrite(DRESET, HIGH);
-
-    #ifdef RADIATION_CLICK
-      digitalWrite(BUZZER, LOW);
-    #endif
   }
 }
