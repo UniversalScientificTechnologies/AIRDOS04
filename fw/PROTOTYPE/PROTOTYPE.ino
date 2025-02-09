@@ -111,8 +111,8 @@ void readRTC()
 
 bool store = false;
 
-// Timer 1 interrupt service routine (ISR)
-ISR(TIMER1_COMPA_vect)
+// Timer 3 interrupt service routine (ISR)
+ISR(TIMER3_COMPA_vect)
 {
   store = true;
 }
@@ -360,22 +360,33 @@ void setup()
   }
  
   cli(); // disable interrupts during setup
-  // Configure Timer 1 interrupt
+
+  // Configure Timer 3 interrupt
   // F_clock = 8 MHz, prescaler = 1024, Fs = 0.125 Hz
+  TCCR3A = 0;
+  TCCR3B = 1<<WGM32 | 1<<CS32 | 0<<CS31 | 1<<CS30;
+  // OCR3A = ((F_clock / prescaler) / Fs) - 1 
+  OCR3AH = 0xF4;      // 62499 Set sampling frequency Fs, period 8 s
+  OCR3AL = 0x23;      // 62499 Set sampling frequency Fs, period 8 s
+  TCNT3H = 0;          // reset Timer 1 counter
+  TCNT3L = 0;          // reset Timer 1 counter
+  TIMSK3 = 1<<OCIE3A; // Enable Timer 1 interrupt
+
+ 
+  // Configure Timer 1 for Input Capture
+  // Voltage reference
+  ADMUX = INTERNAL2V56 << 6;
+  // Comparator
+  ACSR = 1<<ACBG | 1<<ACIC;
+  DIDR1 = 1<<AIN1D | 1<<AIN0D;
+  // F_clock = 8 MHz, prescaler = 1, Fs = 8 MHz
   TCCR1A = 0;
-  //TCCR1B = 1<<WGM12 | 0<<CS12 | 1<<CS11 | 1<<CS10;
-  TCCR1B = 1<<WGM12 | 1<<CS12 | 0<<CS11 | 1<<CS10;
-  // OCR1A = ((F_clock / prescaler) / Fs) - 1 
-  OCR1A = 62499;      // Set sampling frequency Fs, period 8 s
-  //OCR1A = (62500/2)-1;      // Set sampling frequency Fs, period 4 s
+  //TCCR1B = 0;
+  TCCR1B = 1<<ICES1 | 0<<CS12 | 0<<CS11 | 1<<CS10;
   TCNT1 = 0;          // reset Timer 1 counter
-  TIMSK1 = 1<<OCIE1A; // Enable Timer 1 interrupt
 
   store = false;
   sei(); // re-enable interrupts
-
-  ADMUX = (INTERNAL2V56 << 6) | ((0 | 0x10) & 0x1F);
-
 }
 
 
@@ -415,6 +426,20 @@ void loop()
     //delayMicroseconds(4);
     digitalWrite(DRESET, HIGH);
     uint16_t adcVal = SPI.transfer16(0x0000);
+
+    /*
+    uint16_t ToT;
+    //TIFR1 = 1<<ICF1;
+    //while (!(TIFR1 & (1 << ICF1)));
+    //TCNT1 = 0;          // reset Timer 1 counter
+    //delayMicroseconds(1000);
+    ToT = TCNT1 -ICR1;
+    Serial.print(adcVal);    
+    Serial.print("*");
+    //Serial.print(TCNT1);
+    //Serial.print("*");
+    Serial.println(ToT);
+    */
     //if(adcVal>17000) 
     {
       //Serial.println(adcVal);
