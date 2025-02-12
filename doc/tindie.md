@@ -49,5 +49,7 @@ The detector is equipped with indication LEDs that show the status of the device
     * Operation humidity conditions: non-condensing, 20% to 80% RH
 
 ## Shipment content:
+
   * AIRDOS04 sensor unit
   * BATDATUNIT01 - with 64 Wh Li-ion accumulators
+  * Optional extra BATDATUNIT01 - Power and data storage modules
