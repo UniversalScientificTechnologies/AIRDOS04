@@ -15,14 +15,15 @@
 #define STR(s) #s
 
 #define CHANNELS 4 // number of channels in the buffer for histogram
-#define MAX_EVENTS 500 // number of events per integration time
+#define MAX_EVENTS 300 // number of events per integration time
 
 String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE);
 
 #define MAXFILESIZE MAX_MEASUREMENTS * BYTES_MEASUREMENT // in bytes, 4 MB per day, 28 MB per week, 122 MB per month
 #define MAX_MEASUREMENTS 11000ul // in measurement cycles, 5 500 per day
-#define BYTES_MEASUREMENT 531ul // number of bytes per one measurement
+#define BYTES_MEASUREMENT 400ul // number of bytes per one measurement
 #define MAXFILES 200 // maximal number of files on the SD card
+#define _5S 39063  // ticks of timer during 5 s
 
 /*
 ISP
@@ -358,35 +359,55 @@ void DataOut()
   digitalWrite(SPI_MUX_SEL, LOW); // SDcard
 
   readRTC();
-  TCNT1 = 0;          // reset Timer 1 counter
 
   // make a string for assembling the data to log:
   String dataString = "";
-  dataString += "$DT,";
+  
+  // Output of system time of stat the integration
+  dataString += "$START,";
   dataString += String(count);
   dataString += ",";
   dataString += String(event_time[0]);
-  dataString += "\r\n";
 
   // Evens out
   for(uint16_t n=1; n<events_counter; n++)
   {
+     if (n>=MAX_EVENTS) break;
+     uint32_t long_event_time;
+     if (0 == event_time2[n])  
+     {
+       //long_event_time =  2 * _5S - event_time[n];
+       long_event_time =  event_time[n];
+     }
+     else
+     {
+       //long_event_time =  _5S - event_time[n];
+       long_event_time =  _5S + event_time[n];
+     };
+     
+     dataString += "\r\n";
      dataString += "$E,";
-     dataString += String(event_time2[n]);
-     dataString += ",";
-     dataString += String(event_time[n]);
+     dataString += String(long_event_time);
      dataString += ",";
      dataString += String(event_channel[n]);
-     dataString += "\r\n";
   }
 
-  // Histogram out
-  dataString += "$HIST,";
+  
+  // End of integration
+  dataString += "\r\n$STOP,";
   dataString += String(count);
   dataString += ",";
   dataString += String(tm);
   dataString += ".";
   dataString += String(tm_s100);
+  dataString += ",";
+  {
+    uint16_t systime = TCNT3L; // read system time
+    systime |= TCNT3H<<8;
+    dataString += String(systime);
+  };
+  dataString += ",";
+  dataString += String(events_counter-1);
 
   for(uint16_t n=0; n<CHANNELS; n++)
   {
@@ -452,7 +473,6 @@ void DataOut()
   digitalWrite(LED3, LOW);
   digitalWrite(LED2, LOW);
 
-  count++;
   if (count > MAX_MEASUREMENTS)
   {
     count = 0;
@@ -918,18 +938,22 @@ while(true)
 
   cli(); // disable interrupts during setup
   // Configure Timer 1 interrupt
-  // F_clock = 8 MHz, prescaler = 1024, Fs = 7.8125 kHz
+  // F_clock = 8 MHz, prescaler = 1024, Fs = 7.8125 kHz (128 us / tick)
   TCCR1A = 0;
   //TCCR1B = 1<<WGM12 | 0<<CS12 | 1<<CS11 | 1<<CS10;
   TCCR1B = 1<<WGM12 | 1<<CS12 | 0<<CS11 | 1<<CS10;
   // OCR1A = ((F_clock / prescaler) / Fs) - 1
-  OCR1A = 39063;      // Set sampling frequency Fs, period 5 s
-  //OCR1A = (62500/2)-1;      // Set sampling frequency Fs, period 4 s
-  event_time[0] = 0;
-  event_time2[0] = 0;
-  event_channel[0] = 0;
+  OCR1A = _5S;      // Set sampling frequency Fs, period 5 s
   TCNT1 = 0;          // reset Timer 1 counter
   TIMSK1 = 1<<OCIE1A; // Enable Timer 1 interrupt
+
+  // Configure Timer 3 interrupt
+  // F_clock = 8 MHz, prescaler = 1024, Fs = 7.8125 kHz (128 us / tick)
+  TCCR3A = 0;
+  TCCR3B = 1<<CS32 | 0<<CS31 | 1<<CS30;
+  TCNT3H = 0;          // reset Timer 1 counter
+  TCNT3L = 0;          // reset Timer 1 counter
+  
   sei(); // re-enable interrupts
 }
 
@@ -949,6 +973,13 @@ void loop()
   SPI.transfer16(0x0000);
   digitalWrite(DRESET, HIGH);
 
+  {
+    TCNT1 = 0;          // reset Timer 1 counter
+    uint16_t systime = TCNT3L; // read system time
+    systime |= TCNT3H<<8;
+    event_time[0] = systime;
+  }
+  
   store = 0;
   batt = 0;
   env = 0;
@@ -1044,12 +1075,12 @@ void loop()
 
         wdt_disable();
 
-        uint16_t reltime = TCNT1;  // Record death time
-        event_time[0] = reltime;  
-        event_time2[0] = 0;
-        event_channel[0] = 0;
-
-        continue; // Continue with waiting for next peak detection
+        count++;            // Next integration
+        TCNT1 = 0;          // reset Timer 1 counter
+        uint16_t systime = TCNT3L; // read system time
+        systime |= TCNT3H<<8;
+        event_time[0] = systime;
+        continue;           // Continue with waiting for next peak detection
       }
     };
     // Signal is going down, we can run ADC
@@ -1067,13 +1098,16 @@ void loop()
     }
     else
     {
-      uint16_t reltime = TCNT1;
-      //uint16_t reltime = TCNT1L;
-      //reltime |= TCNT1H<<8;
-      event_time[events_counter] = reltime;
-      event_time2[events_counter] = store;
-      event_channel[events_counter] = adcVal;
-      if (events_counter<(MAX_EVENTS-1)) events_counter++;
+//adcVal = 65535;
+      if (events_counter<MAX_EVENTS) 
+      {
+        uint16_t reltime = TCNT1; //uint16_t reltime = TCNT1L; reltime |= TCNT1H<<8;
+//reltime = 70000;
+        event_time[events_counter] = reltime;
+        event_time2[events_counter] = store;
+        event_channel[events_counter] = adcVal;
+      }
+      events_counter++;
     }
     digitalWrite(DRESET, HIGH);
   }
