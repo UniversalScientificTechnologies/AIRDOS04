@@ -249,8 +249,30 @@ leds_button = [7.4, 14.75];
 module front_cover(){
 
     difference(){
-        front_cover_empty();
-        
+
+        union(){
+            front_cover_empty();
+
+            translate([0, 1.6/2, 0]) difference(){
+                union(){
+                    translate([0, 2.5+0.1, 3.5]) cube([80.7, 5, 8.5], center=true);
+                    translate([0, -1-1.6-0.1, 3.5]) cube([80.7, 2, 8.5], center=true);
+                }
+                
+                translate([0, -3, 2]) cube([31*2, 4, 15], center=true);
+                difference(){
+                    translate([0, 0.5, 2]) cube([31*2, 3, 15], center=true);
+                    translate([10.5, 0.5, 2]) cube([14.5, 3, 15], center=true);
+                }
+                for(x=leds_button) translate([x, 1.75]) {
+                    //cylinder(d=4,h=20, $fn=30, center=true);
+                    translate([0, 0, 4]) cylinder(d=7,h=20, $fn=30);
+                }   
+                for(x=[0.5, -0.5])  translate([x*10.16*7, 0, 4.9]) rotate([90, 0, 0]) cylinder(d=M3_screw_diameter, h=15, center=true, $fn=30);
+                
+
+            }
+        }
         
         for(x=leds_positions_top) translate([x, 1.6/2+0.6, 0]) scale([1, 1, 1]) cylinder(d1=1.6, d2=3,h=20, $fn=30, center=true);
         for(x=leds_positions_bottom) translate([x, -1.6/2-0.6, 0]) scale([1, 1, 1]) cylinder(d1=1.6, d2=3,h=20, $fn=30, center=true);
@@ -281,28 +303,10 @@ module front_cover(){
     translate([-pcb_width/2, -pcb_above_ground+3/2+0.5, 0]) cylinder(d=M3_screw_diameter, h=10, center=true, $fn=60);
 
     }
-    
-        cube([60, 1, 0.4], center=true);
 
-        translate([0, 1.6/2, 0]) difference(){
-            union(){
-                translate([0, 2.5+0.1, 4]) cube([80.7, 5, 8], center=true);
-                translate([0, -1-1.6-0.1, 4]) cube([80.7, 2, 8], center=true);
-            }
-            
-            translate([0, -3, 2]) cube([31*2, 4, 15], center=true);
-            difference(){
-                translate([0, 0.5, 2]) cube([31*2, 3, 15], center=true);
-                translate([10.5, 0.5, 2]) cube([15, 3, 15], center=true);
-            }
-            for(x=leds_button) translate([x, 1.75]) {
-                cylinder(d=4,h=20, $fn=30, center=true);
-                translate([0, 0, 4]) cylinder(d=7,h=20, $fn=30);
-             }   
-            for(x=[0.5, -0.5])  translate([x*10.16*7, 0, 4.9]) rotate([90, 0, 0]) cylinder(d=M3_screw_diameter, h=15, center=true, $fn=30);
-            
-   
-    }
+    /// lem na rozepreni proti PCB
+    cube([60, 1, 0.4], center=true);
+    
 }
 
 front_cover();
