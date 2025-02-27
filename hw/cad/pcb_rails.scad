@@ -255,8 +255,8 @@ module front_cover(){
 
             translate([0, 1.6/2, 0]) difference(){
                 union(){
-                    translate([0, 2.5+0.1, 3.5]) cube([80.7, 5, 8.5], center=true);
-                    translate([0, -1-1.6-0.1, 3.5]) cube([80.7, 2, 8.5], center=true);
+                    translate([0, 2.5+0.1, 3.5]) cube([80.7, 5, 9], center=true);
+                    translate([0, -1-1.6-0.1, 3.5]) cube([80.7, 2, 9], center=true);
                 }
                 
                 translate([0, -3, 2]) cube([31*2, 4, 15], center=true);
@@ -305,7 +305,7 @@ module front_cover(){
     }
 
     /// lem na rozepreni proti PCB
-    cube([60, 1, 0.4], center=true);
+    cube([60, 1, 0.8], center=true);
     
 }
 
