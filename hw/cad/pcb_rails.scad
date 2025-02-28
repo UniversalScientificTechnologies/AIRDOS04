@@ -333,38 +333,33 @@ module rear_cover(){
         
         }
         
-        // Snizeni rantlu.. 
+        // Snizeni rantlu 
         translate([0, 0, 2.5+4]) cube([200, 100, 5], center=true);
         
         
-  // Otvory pro srouby na prisroubovani celicka
-   translate([-pcb_width/2, -pcb_above_ground+3/2+0.5, 0]) cylinder(d=M3_screw_diameter, h=10, center=true, $fn=60);
-   translate([pcb_width/2, -pcb_above_ground+3/2+0.5, 0]) cylinder(d=M3_screw_diameter, h=10, center=true, $fn=60);
-   
-   
+        // Otvory pro srouby na prisroubovani celicka
+        translate([-pcb_width/2, -pcb_above_ground+3/2+0.5, 0]) cylinder(d=M3_screw_diameter, h=10, center=true, $fn=60);
+        translate([pcb_width/2, -pcb_above_ground+3/2+0.5, 0]) cylinder(d=M3_screw_diameter, h=10, center=true, $fn=60);
+        
+        for(x=[0.5, -0.5], y=[-0.5, 0.5]) translate([x*95, y*45.47, -1.7]) {
+            cylinder(d=4.2, h = 10, $fn=60);
+            cylinder(d1=5.85, d2=4.2, h = 1, $fn=60);
+        }
 
-     
-    for(x=[0.5, -0.5], y=[-0.5, 0.5]) translate([x*95, y*45.47, -1.7]) {
-        cylinder(d=4.2, h = 10, $fn=60);
-        cylinder(d1=5.85, d2=4.2, h = 1, $fn=60);
-    }
-
-    
+        // vybrani pro zabraneni kontaktu USTSIPIN03 se stenou cela
+        translate([0, -21.3, 5/2-0.6]) cube([80, 5, 5], center=true);
     }
     
-    
-
-        translate([0, 1.6/2, 0]) difference(){
-            translate([0, 3.5, 4]) cube([70.6, 7, 10], center=true);
-            translate([0, 2.5, 4]) cube([70.6-10.16*2, 10, 10+1], center=true);
-           
-           for(x=[0.5, -0.5])  translate([x*10.16*6, 0, 4.9]) rotate([90, 0, 0]) {
-                cylinder(d=M3_screw_diameter, h=10, center=true, $fn=30);
-                translate([0, 0, -10-7+3]) cylinder(d=M3_nut_diameter, h=10, center=false, $fn=6);
-           
-           }
-            
-   
+    translate([0, 1.6/2, 0]) difference(){
+        translate([0, 3.5, 4]) cube([70.6, 7, 10], center=true);
+        translate([0, 2.5, 4]) cube([70.6-10.16*2, 10, 10+1], center=true);
+       
+        for(x=[0.5, -0.5])  translate([x*10.16*6, 0, 4.9]) rotate([90, 0, 0]) {
+            cylinder(d=M3_screw_diameter, h=10, center=true, $fn=30);
+            translate([0, 0, -10-7+3]) cylinder(d=M3_nut_diameter, h=10, center=false, $fn=6);
+       
+        }
+        
     }
 }
 
