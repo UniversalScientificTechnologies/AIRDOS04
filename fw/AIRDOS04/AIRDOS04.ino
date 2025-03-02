@@ -118,6 +118,7 @@ uint8_t ADCconf1;
 uint8_t ADCconf2;
 uint8_t DIGconf1;
 uint8_t DIGconf2;
+boolean clicks = false;
 
 void(* resetFunc) (void) = 0; //declare reset function at address 0
 
@@ -957,6 +958,101 @@ while(true)
   sei(); // re-enable interrupts
 }
 
+inline void PostIntegration() __attribute__((always_inline));
+
+inline void PostIntegration()
+{
+  store = 0;
+  batt++;
+  env++;
+
+  digitalWrite(LED2, digitalRead(ACONNECT));
+  if (digitalRead(ACONNECT))  // Analog part is disconnected?
+  {
+    Wire.beginTransmission(0x51); // 1024 Hz to #INTA
+    Wire.write((uint8_t)0x27); // Start register
+    Wire.write((uint8_t)0x00); // 0x27 Enable CLX output on INTA pin, using bits set in reg 0x28
+    Wire.write(0x95);             // COF
+    Wire.endTransmission();
+
+    delay(3000);
+
+    for( uint16_t n=0; n<200; n++)
+    {
+      delayMicroseconds(250);
+      pinMode(BUZZER, OUTPUT);
+      digitalWrite(BUZZER, HIGH);
+      delayMicroseconds(250);
+      pinMode(BUZZER, OUTPUT);
+      digitalWrite(BUZZER, LOW);
+    }
+
+    Wire.beginTransmission(0x51); // High-Z on #INTA
+    Wire.write((uint8_t)0x27); // Start register
+    Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
+    Wire.write(0x95);             // COF
+    Wire.endTransmission();
+
+
+    // Power off
+    Wire.beginTransmission(0x6A); // I2C address
+    Wire.write((uint8_t)0x18); // Start register
+    Wire.write((uint8_t)0x0A); //
+    Wire.endTransmission();
+    
+    while(true)
+    {
+      delay(5000);
+      for( uint16_t n=0; n<200; n++)
+      {
+        delayMicroseconds(250);
+        pinMode(BUZZER, OUTPUT);
+        digitalWrite(BUZZER, HIGH);
+        delayMicroseconds(250);
+        pinMode(BUZZER, OUTPUT);
+        digitalWrite(BUZZER, LOW);
+      }
+    }
+  };
+
+  digitalWrite(DRESET, HIGH);
+  digitalWrite(DSET, LOW);
+
+  wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
+
+  DataOut();  // Save data from integration time
+  for(int n=0; n<CHANNELS; n++) // reset histogram
+  {
+    histogram[n]=0;
+  };
+  events_counter = 1; // Start events from 1 (because 0 is record of death time)
+
+  if (env >= 5*6) // Environment out every 5 minutes
+  {
+    env = 0;
+    EnvOut();
+  };
+
+  if (batt >= 30*6) // Battery status every 30 minutes
+  {
+    batt = 0;
+    BattOut();
+  };
+  
+  // dummy conversion (reset ADC)
+  digitalWrite(DSET, HIGH);
+  digitalWrite(DRESET, LOW); // L on CONV
+  SPI.transfer16(0x0000);
+  digitalWrite(DRESET, HIGH);
+
+  wdt_disable();
+
+  count++;            // Next integration
+  TCNT1 = 0;          // reset Timer 1 counter
+  uint16_t systime = TCNT3L; // read system time
+  systime |= TCNT3H<<8;
+  event_time[0] = systime;
+}
 
 
 void loop()
@@ -990,97 +1086,21 @@ void loop()
     {
       if (store >= 2) // Data out every 10 s
       {
-        store = 0;
-        batt++;
-        env++;
-
-        digitalWrite(LED2, digitalRead(ACONNECT));
-        if (digitalRead(ACONNECT))  // Analog part is disconnected?
+        if (!digitalRead(BTN_USER_A))
         {
-          Wire.beginTransmission(0x51); // 1024 Hz to #INTA
-          Wire.write((uint8_t)0x27); // Start register
-          Wire.write((uint8_t)0x00); // 0x27 Enable CLX output on INTA pin, using bits set in reg 0x28
-          Wire.write(0x95);             // COF
-          Wire.endTransmission();
-
-          delay(3000);
-
           for( uint16_t n=0; n<200; n++)
           {
-            delayMicroseconds(250);
+            delayMicroseconds(150);
             pinMode(BUZZER, OUTPUT);
             digitalWrite(BUZZER, HIGH);
-            delayMicroseconds(250);
+            delayMicroseconds(150);
             pinMode(BUZZER, OUTPUT);
             digitalWrite(BUZZER, LOW);
-          }
-
-          Wire.beginTransmission(0x51); // High-Z on #INTA
-          Wire.write((uint8_t)0x27); // Start register
-          Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
-          Wire.write(0x95);             // COF
-          Wire.endTransmission();
-
-
-          // Power off
-          Wire.beginTransmission(0x6A); // I2C address
-          Wire.write((uint8_t)0x18); // Start register
-          Wire.write((uint8_t)0x0A); //
-          Wire.endTransmission();
-          
-          while(true)
-          {
-            delay(5000);
-            for( uint16_t n=0; n<200; n++)
-            {
-              delayMicroseconds(250);
-              pinMode(BUZZER, OUTPUT);
-              digitalWrite(BUZZER, HIGH);
-              delayMicroseconds(250);
-              pinMode(BUZZER, OUTPUT);
-              digitalWrite(BUZZER, LOW);
-            }
-          }
+          };
+          clicks = !clicks;
         };
 
-        digitalWrite(DRESET, HIGH);
-        digitalWrite(DSET, LOW);
-
-        wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
-
-        DataOut();  // Save data from integration time
-        for(int n=0; n<CHANNELS; n++) // reset histogram
-        {
-          histogram[n]=0;
-        };
-        events_counter = 1; // Start events from 1 (because 0 is record of death time)
-
-        if (env >= 5*6) // Environment out every 5 minutes
-        {
-          env = 0;
-          EnvOut();
-        };
-
-        if (batt >= 30*6) // Battery status every 30 minutes
-        {
-          batt = 0;
-          BattOut();
-        };
-        
-        // dummy conversion (reset ADC)
-        digitalWrite(DSET, HIGH);
-        digitalWrite(DRESET, LOW); // L on CONV
-        SPI.transfer16(0x0000);
-        digitalWrite(DRESET, HIGH);
-
-        wdt_disable();
-
-        count++;            // Next integration
-        TCNT1 = 0;          // reset Timer 1 counter
-        uint16_t systime = TCNT3L; // read system time
-        systime |= TCNT3H<<8;
-        event_time[0] = systime;
-        continue;           // Continue with waiting for next peak detection
+        PostIntegration();
       }
     };
     // Signal is going down, we can run ADC
@@ -1088,10 +1108,13 @@ void loop()
     digitalWrite(DRESET, LOW); // L on CONV
     uint16_t adcVal = SPI.transfer16(0x0000); // 0c8000 +/GND, 0x0000 +/-
 
-    #ifdef RADIATION_CLICK
-      if (adcVal>=CHANNELS) PORTD ^= 0x80; // digitalWrite(BUZZER, !digitalRead(BUZZER)); // buzzer click
-    #endif
-
+    if (clicks)
+    {
+      //if (adcVal>=CHANNELS) PORTD ^= 0x80; // digitalWrite(BUZZER, !digitalRead(BUZZER)); // buzzer click
+      if (adcVal>=CHANNELS) PORTD ^= 0x20; // LED2 blick
+      //if (adcVal>=CHANNELS) PORTD ^= 0xA0; // LED2 blick & BUZZER click
+    };
+    
     if (adcVal<CHANNELS)  // Record single event if energy is above threshold
     {   
       histogram[adcVal]++;
@@ -1102,7 +1125,7 @@ void loop()
       if (events_counter<MAX_EVENTS) 
       {
         uint16_t reltime = TCNT1; //uint16_t reltime = TCNT1L; reltime |= TCNT1H<<8;
-//reltime = 70000;
+//reltime = 40000;
         event_time[events_counter] = reltime;
         event_time2[events_counter] = store;
         event_channel[events_counter] = adcVal;
