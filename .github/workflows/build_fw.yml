@@ -51,7 +51,7 @@ jobs:
 
     steps:
         - name: Checkout
-          uses: actions/checkout@v3
+          uses: actions/checkout@v4
           continue-on-error: true
           with:
             submodules: False
@@ -128,7 +128,7 @@ jobs:
             touch root
 
         - name: Store data
-          uses: actions/upload-artifact@v3
+          uses: actions/upload-artifact@v4
           with:
             name: fw_${{ matrix.type }}_${{ matrix.name }}
             path: |
@@ -144,7 +144,7 @@ jobs:
     needs: [build]
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         continue-on-error: true
         with:
           submodules: True
@@ -155,7 +155,7 @@ jobs:
           mkdir fw/artifacts
 
       - name: Download a Build Artifact
-        uses: actions/download-artifact@v3.0.2
+        uses: actions/download-artifact@v4
         with:
           path: 'fw/artifacts/'
 
