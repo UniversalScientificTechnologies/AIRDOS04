@@ -51,14 +51,21 @@ module rail(){
          
         
         }
-        
-        for(m=[0, 1]) mirror([0, m, 0]) {
+                
+        // for(m=[0, 1]) mirror([0, m, 0]) {
+        for(m=[]) mirror([0, m, 0]) {
             translate([pcb_width/2, -albase_length/2+15, 3]) rotate([90, 0, 0]) cylinder(d=M3_screw_diameter, h=20, $fn=60);
             
             hull(){
                 translate([pcb_width/2, -albase_length/2+5, 3]) rotate([90, 0, 0]) cylinder(d=M3_nut_diameter, h=3, $fn=6);
                 translate([pcb_width/2, -albase_length/2+5, -3]) rotate([90, 0, 0]) cylinder(d=M3_nut_diameter, h=3, $fn=6);
             }
+        }
+        
+        
+        for(m=[0,1]) mirror([0, m, 0]) {
+            translate([pcb_width/2, -albase_length/2+15, 3]) rotate([90, 0, 0]) cylinder(d=3.8, h=20, $fn=60);
+            translate([pcb_width/2, -albase_length/2+2, 3]) rotate([90, 0, 0]) cylinder(d=8, h=2, $fn=60);
         }
     
     translate([0, -(albase_length+1)/2, pcb_above_ground])
@@ -115,8 +122,17 @@ module bottom_case(){
     difference(){
         translate([0, 0, batdat_case_thickness/2])
             cube([batdat_case_length, batdat_case_width, batdat_case_thickness], center=true);
-    
+       
+        // pojistky
+        translate([0, 0, 6]) cube([batdat_case_length-40, batdat_case_width-3, batdat_case_thickness], center=true);
         
+        
+        // vyrez pro programovaci konektor
+        translate([20-3, -10-4.5, -2])
+            cube([6, 9, 10]);
+
+        
+        // montazni srouby
         for(x=[-1, 1], y=[-1, 1])
             translate([x*10.16*6-screw_shift, y*10.16*3.5+0, -0.1]) {
             translate([0, 0, 3.2])
@@ -125,16 +141,15 @@ module bottom_case(){
         }
         
         
-        // pro senzory 
+        // pro senzory
         translate([45, batdat_case_width/2, batdat_case_thickness]) cube([13, 10, 5], center=true);
-            
         
+        // honeycomb
         translate([0, 3, 0.4]) intersection(){
-        for(x=[-8:7], y=[-4:3]) translate([x*7, y*8+(x%2==0? 4:0), 0]) cylinder(d=7.5, h=10, $fn=6);
-        
-        
+            for(x=[-8:7], y=[-4:3])
+               translate([x*7, y*8+(x%2==0? 4:0), 0])
+                    cylinder(d=7.5, h=10, $fn=6);
         }
-        
         
         
         // srazeni spodni hrany
@@ -153,7 +168,8 @@ module bottom_case(){
                 translate([-batdat_case_length/2, 0, 2.5+batdat_case_thickness-2.2]) 
                     cube([20, 100, 5], center=true);
             }
-            
+        
+    
         
         // Okenko pro SN
         //translate([sn_view_position_x, 0, 0]) cube([8+1.4, 45+1.4, 20], center=true);
@@ -174,6 +190,8 @@ module bottom_case(){
             
         }
         
+        
+        
         // Okenko pro SN
         //translate([sn_view_position_x, 0, 0]) cube([8, 45, 20], center=true);
             
@@ -189,6 +207,12 @@ module bottom_case(){
         cylinder(d = 3, h=batdat_case_thickness+3, $fn=30);
     }
     
+    
+        translate([20-3, -10-4.5, 0])
+            difference(){
+                translate([-1, -1, 0]) cube([6+2, 9+2, 5]);
+                cube([6, 9, 5]);
+            }
     
 }
 
@@ -305,7 +329,7 @@ module front_cover(){
     }
 
     /// lem na rozepreni proti PCB
-    cube([60, 1, 0.8], center=true);
+    cube([60, 1, 1.1], center=true);
     
 }
 
