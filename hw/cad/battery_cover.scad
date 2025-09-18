@@ -10,7 +10,7 @@ wall_top = 1.5;
 
 
 beam_length = 130;
-beam_thickness = 9;
+beam_thickness = 10;
 front_offset = 6;
 
 screw_distance = 10.16*12;
@@ -18,7 +18,7 @@ screw_distance = 10.16*12;
 
 difference(){
     translate([0, 0, battery_height/2-wall_top/2]) cube([battery_length+wall_around*2, battery_width+wall_around*2, battery_height+wall_top], center=true);
-    translate([0, 0, battery_height/2+wall_top]) cube([battery_length, battery_width, battery_height], center=true);
+    translate([0, 0, battery_height/2]) cube([battery_length, battery_width, battery_height], center=true);
 }
 
 
@@ -30,10 +30,12 @@ hull(){
     translate([3, 0, 0.05]) cube([battery_length+2*wall_around+5+3, beam_thickness, 0.1+wall_top*2], center=true);
 
 }
-    translate([0, 0, battery_height/2+wall_top]) cube([battery_length, battery_width, battery_height], center=true);
+    translate([0, 0, battery_height/2]) cube([battery_length, battery_width, battery_height], center=true);
     
     translate([-20, 0, battery_height*1.5-5]) cube([battery_length, battery_width, battery_height], center=true);
-    
+
+translate([battery_length/2+wall_around+0.5, 0, battery_height-4])
+    cube([1, 100, 6], center=true);
 
 for(x=[0.5, -0.5]) translate([offset+screw_distance*x, 0, 0]){
     cylinder(d=3.3, h=50, center=true, $fn=50);

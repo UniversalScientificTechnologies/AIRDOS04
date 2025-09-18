@@ -384,11 +384,38 @@ void setup()
   digitalWrite(SCK, LOW);    
   digitalWrite(SDmode, LOW);     // SD card reader oscilator off
 
+  // // Setup battery charger
+  // Wire.beginTransmission(0x6A); // I2C address
+  // Wire.write((uint8_t)0x15); // Start register
+  // Wire.write((uint8_t)0b10011001); // Disable charging LED
+  // Wire.endTransmission();
+
+  
   // Setup battery charger
   Wire.beginTransmission(0x6A); // I2C address
-  Wire.write((uint8_t)0x15); // Start register
-  Wire.write((uint8_t)0b10011001); // Disable charging LED
+  Wire.write((uint8_t)0x02); // Start register
+  Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
   Wire.endTransmission();
+  Wire.beginTransmission(0x6A); // I2C address
+  Wire.write((uint8_t)0x14); // Start register
+  Wire.write((uint8_t)0b00100110);
+  Wire.write((uint8_t)0b10011001);
+  Wire.write((uint8_t)0b00000000);
+  // Wire.write((uint8_t)0b01010110);
+  // Wire.write((uint8_t)0b00000000);
+  // Wire.write((uint8_t)0b00000001);
+  Wire.endTransmission();
+  Wire.beginTransmission(0x6A); // I2C address
+  Wire.write((uint8_t)0x1a); // Start register
+  Wire.write((uint8_t)0b10111111); // NTC
+  Wire.endTransmission();
+  Wire.beginTransmission(0x6A); // I2C address
+  Wire.write((uint8_t)0x26); // Start register
+  Wire.write((uint8_t)0b10001100); // ADC
+  Wire.endTransmission();
+
+
+  
 /*
   for (uint16_t MSB=0; MSB<=256; MSB++)
   {
