@@ -542,7 +542,8 @@ void setup()
   Wire.write((uint8_t)0x14); // Start register
   Wire.write((uint8_t)0b00100110);
   Wire.write((uint8_t)0b00011001);
-  Wire.write((uint8_t)0b10100000);
+  Wire.write((uint8_t)0b10100000); // Enable charger
+  //Wire.write((uint8_t)0b00000000); // Disable charger
   Wire.write((uint8_t)0b01010110);
   Wire.write((uint8_t)0b00000000);
   Wire.write((uint8_t)0b00000001);
