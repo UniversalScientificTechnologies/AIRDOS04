@@ -639,29 +639,8 @@ void setup()
   pinMode(EXT_I2C_EN, OUTPUT);    // Disable external I2C
   digitalWrite(EXT_I2C_EN, LOW);
 
-  // Setup battery charger
-  Wire.beginTransmission(0x6A); // I2C address
-  Wire.write((uint8_t)0x02); // Start register
-  Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
-  Wire.endTransmission();
-  Wire.beginTransmission(0x6A); // I2C address
-  Wire.write((uint8_t)0x14); // Start register
-  Wire.write((uint8_t)0b00100110);
-  Wire.write((uint8_t)0b00011001);
-  Wire.write((uint8_t)0b10100000); // Enable charger
-  //Wire.write((uint8_t)0b00000000); // Disable charger
-  Wire.write((uint8_t)0b01010110);
-  Wire.write((uint8_t)0b00000000);
-  Wire.write((uint8_t)0b00000001);
-  Wire.endTransmission();
-  Wire.beginTransmission(0x6A); // I2C address
-  Wire.write((uint8_t)0x1a); // Start register
-  Wire.write((uint8_t)0b10111111); // NTC
-  Wire.endTransmission();
-  Wire.beginTransmission(0x6A); // I2C address
-  Wire.write((uint8_t)0x26); // Start register
-  Wire.write((uint8_t)0b10001100); // ADC
-  Wire.endTransmission();
+  // Setup battery charger (default to enabled)
+  configureChargerEnabled();
 
 
   /* DEBUG VBUS voltage
@@ -766,21 +745,9 @@ while(true)
           // SD card reader ON
           digitalWrite(SDmode, HIGH);   // SD card reader oscilator on
 
-          detectedBatteryMv = 0;
-          batteryPresent = detectBatteryPresence(detectedBatteryMv);
-          if (batteryPresent)
-          {
-            configureChargerEnabled();
-          }
-          else
-          {
-            configureChargerDisabled();
-          }
-
-          Serial1.print("#BatteryPresent,");
-          Serial1.print(batteryPresent ? 1 : 0);
-          Serial1.print(",");
-          Serial1.println(detectedBatteryMv);
+          // SD card reader on (charger stays as default enabled)
+          Wire.beginTransmission(0x71); // card reader address
+          Wire.write((uint8_t)0x00); // Start register
           Wire.write((uint8_t)0b00010011); // 0b0001 0 01 1
           Wire.endTransmission();
         }
