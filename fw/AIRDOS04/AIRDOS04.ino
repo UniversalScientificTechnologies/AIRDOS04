@@ -281,6 +281,31 @@ uint8_t batt = 0;
 uint8_t env = 0;
 uint8_t ainserted = 0;
 
+void playModeChangeTone()
+{
+  // Signal: USB reader mode activated or normal mode resumed
+  // First tone sequence: 2 kHz (high pitched)
+  for( uint16_t n=0; n<200; n++)
+  {
+    delayMicroseconds(250);
+    pinMode(BUZZER, OUTPUT);
+    digitalWrite(BUZZER, HIGH);
+    delayMicroseconds(250);
+    pinMode(BUZZER, OUTPUT);
+    digitalWrite(BUZZER, LOW);
+  }
+  // Second tone sequence: ~2.8 kHz (higher pitch)
+  for( uint16_t n=0; n<200; n++)
+  {
+    delayMicroseconds(180);
+    pinMode(BUZZER, OUTPUT);
+    digitalWrite(BUZZER, HIGH);
+    delayMicroseconds(180);
+    pinMode(BUZZER, OUTPUT);
+    digitalWrite(BUZZER, LOW);
+  }
+}
+
 // Timer 1 interrupt service routine (ISR)
 ISR(TIMER1_COMPA_vect)
 {
@@ -744,6 +769,7 @@ while(true)
         {
           // SD card reader ON
           digitalWrite(SDmode, HIGH);   // SD card reader oscilator on
+          playModeChangeTone();          // Signal mode change to user
 
           // SD card reader on (charger stays as default enabled)
           Wire.beginTransmission(0x71); // card reader address
@@ -755,24 +781,7 @@ while(true)
         {
           pinMode(LED1, OUTPUT);
           digitalWrite(LED1, LOW);
-          for( uint16_t n=0; n<200; n++)
-          {
-            delayMicroseconds(180);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, HIGH);
-            delayMicroseconds(180);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, LOW);
-          }
-          for( uint16_t n=0; n<200; n++)
-          {
-            delayMicroseconds(250);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, HIGH);
-            delayMicroseconds(250);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, LOW);
-          };
+          playModeChangeTone();          // Signal mode change to user
           // SD card reader off
           Wire.beginTransmission(0x71); // card reader address
           Wire.write((uint8_t)0x00); // Start register
