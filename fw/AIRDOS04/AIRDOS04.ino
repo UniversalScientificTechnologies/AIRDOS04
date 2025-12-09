@@ -104,6 +104,10 @@ https://github.com/RobTillaart/MS5611
 #define ENUM_FTDI_USB 21 // PC5 = LOW = USB connected
 
 #define BQ34Z100 0x55
+#define CHARGER_ADDR 0x6A
+#define VBAT_ADC_BASE_MV 2304   // BQ2562x VBAT ADC base in mV (2.304 V)
+#define VBAT_ADC_LSB_MV 20      // 20 mV per LSB
+#define VBAT_PRESENT_THRESHOLD_MV 3000
 
 String filename = "";
 uint16_t fn;
@@ -119,6 +123,8 @@ uint8_t ADCconf2;
 uint8_t DIGconf1;
 uint8_t DIGconf2;
 boolean clicks = false;
+bool batteryPresent = true;
+uint16_t detectedBatteryMv = 0;
 
 void(* resetFunc) (void) = 0; //declare reset function at address 0
 
@@ -167,6 +173,106 @@ int16_t readBat(int8_t regaddr)
   unsigned int high1 = high<<8;
 
   return (high1 + low);
+}
+
+uint8_t readChargerReg(uint8_t regaddr)
+{
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write(regaddr);
+  Wire.endTransmission(false);
+  Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
+  if (!Wire.available()) return 0;
+  return (uint8_t)Wire.read();
+}
+
+void writeChargerReg(uint8_t regaddr, uint8_t value)
+{
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write(regaddr);
+  Wire.write(value);
+  Wire.endTransmission();
+}
+
+void configureChargerEnabled()
+{
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write((uint8_t)0x02); // Input current limit register
+  Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write((uint8_t)0x14); // Charge control block
+  Wire.write((uint8_t)0b00100110);
+  Wire.write((uint8_t)0b00011001);
+  Wire.write((uint8_t)0b10100000); // Enable charger
+  Wire.write((uint8_t)0b01010110);
+  Wire.write((uint8_t)0b00000000);
+  Wire.write((uint8_t)0b00000001);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR); // NTC
+  Wire.write((uint8_t)0x1a);
+  Wire.write((uint8_t)0b10111111);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR); // ADC configuration
+  Wire.write((uint8_t)0x26);
+  Wire.write((uint8_t)0b10001100);
+  Wire.endTransmission();
+}
+
+void configureChargerDisabled()
+{
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write((uint8_t)0x02); // Input current limit register
+  Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write((uint8_t)0x14); // Charge control block
+  Wire.write((uint8_t)0b00100110);
+  Wire.write((uint8_t)0b10011001);
+  Wire.write((uint8_t)0b00000000); // Disable charger (matches AIRDOS04X)
+  Wire.write((uint8_t)0b01010110);
+  Wire.write((uint8_t)0b00000000);
+  Wire.write((uint8_t)0b00000001);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR); // NTC
+  Wire.write((uint8_t)0x1a);
+  Wire.write((uint8_t)0b10111111);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(CHARGER_ADDR); // ADC configuration
+  Wire.write((uint8_t)0x26);
+  Wire.write((uint8_t)0b10001100);
+  Wire.endTransmission();
+}
+
+bool detectBatteryPresence(uint16_t &batteryMv)
+{
+  // Step 1: disable charging and apply 30 mA discharge
+  uint8_t reg16 = readChargerReg(0x16);
+  reg16 &= ~(1<<5);          // EN_CHG = 0
+  writeChargerReg(0x16, reg16 | (1<<6)); // FORCE_IBATDIS = 1
+
+  delay(5);
+
+  // Step 2: stop discharge
+  writeChargerReg(0x16, reg16 & ~(1<<6));
+
+  // Step 3: one-shot ADC for VBAT
+  uint8_t reg26 = readChargerReg(0x26);
+  reg26 |= (1<<7) | (1<<6); // ADC_EN=1, ADC_RATE=1 (one-shot)
+  writeChargerReg(0x26, reg26);
+
+  delay(10); // allow conversion to finish
+
+  uint8_t vbatCode = readChargerReg(0x30); // VBAT ADC result
+  batteryMv = VBAT_ADC_BASE_MV + (uint16_t)vbatCode * VBAT_ADC_LSB_MV;
+
+  // Battery considered present when VBAT is above undervoltage area
+  return batteryMv >= VBAT_PRESENT_THRESHOLD_MV;
 }
 
 
@@ -660,29 +766,21 @@ while(true)
           // SD card reader ON
           digitalWrite(SDmode, HIGH);   // SD card reader oscilator on
 
-          pinMode(LED1, OUTPUT);
-          digitalWrite(LED1, HIGH);
-          for( uint16_t n=0; n<200; n++)
+          detectedBatteryMv = 0;
+          batteryPresent = detectBatteryPresence(detectedBatteryMv);
+          if (batteryPresent)
           {
-            delayMicroseconds(250);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, HIGH);
-            delayMicroseconds(250);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, LOW);
-          };
-          for( uint16_t n=0; n<200; n++)
-          {
-            delayMicroseconds(180);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, HIGH);
-            delayMicroseconds(180);
-            pinMode(BUZZER, OUTPUT);
-            digitalWrite(BUZZER, LOW);
+            configureChargerEnabled();
           }
-          // SD card reader on
-          Wire.beginTransmission(0x71); // card reader address
-          Wire.write((uint8_t)0x00); // Start register
+          else
+          {
+            configureChargerDisabled();
+          }
+
+          Serial1.print("#BatteryPresent,");
+          Serial1.print(batteryPresent ? 1 : 0);
+          Serial1.print(",");
+          Serial1.println(detectedBatteryMv);
           Wire.write((uint8_t)0b00010011); // 0b0001 0 01 1
           Wire.endTransmission();
         }
@@ -857,6 +955,11 @@ while(true)
   ADCconf2 = Wire.read();
   dataString += String(ADCconf1,HEX);
   dataString += String(ADCconf2,HEX);
+
+  dataString += "\r\n$BATP,";
+  dataString += batteryPresent ? "1" : "0";
+  dataString += ",";
+  dataString += String(detectedBatteryMv);
 
   // Filename selection and initial write to SD card
   {
