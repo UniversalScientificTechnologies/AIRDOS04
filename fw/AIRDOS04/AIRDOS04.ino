@@ -105,9 +105,18 @@ https://github.com/RobTillaart/MS5611
 
 #define BQ34Z100 0x55
 #define CHARGER_ADDR 0x6A
-#define VBAT_ADC_BASE_MV 2304   // BQ2562x VBAT ADC base in mV (2.304 V)
-#define VBAT_ADC_LSB_MV 20      // 20 mV per LSB
-#define VBAT_PRESENT_THRESHOLD_MV 3000
+#define RTC_ADDR 0x51
+#define SD_READER_ADDR 0x71
+#define EEPROM_ANALOG_ADDR 0x5B
+#define EEPROM_DIGITAL_ADDR 0x58
+#define EEPROM_DIGITAL_CFG_ADDR 0x50
+#define EEPROM_ANALOG_CFG_ADDR 0x53
+#define SHT31_ADDR_PRIMARY 0x44
+#define SHT31_ADDR_SECONDARY 0x45
+#define MS5611_ADDR 0x77
+#define VBAT_ADC_LSB_0P01_MV     199u      // 1.99 mV = 199 × 0.01 mV
+#define VBAT_PRESENT_THRESHOLD_MV 3000u    // např. 3.0 V jako hranice „baterie je přítomna“
+
 
 String filename = "";
 uint16_t fn;
@@ -138,11 +147,11 @@ uint8_t tm_s100;
 
 void readRTC()
 {
-  Wire.beginTransmission(0x51);
+  Wire.beginTransmission(RTC_ADDR);
   Wire.write(0);
   Wire.endTransmission();
 
-  Wire.requestFrom(0x51, 6);
+  Wire.requestFrom((uint8_t)RTC_ADDR, (uint8_t)6);
   tm_s100 = bcdToDec(Wire.read());
   uint8_t tm_sec = bcdToDec(Wire.read() & 0x7f);
   uint8_t tm_min = bcdToDec(Wire.read() & 0x7f);
@@ -183,6 +192,21 @@ uint8_t readChargerReg(uint8_t regaddr)
   Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
   if (!Wire.available()) return 0;
   return (uint8_t)Wire.read();
+}
+
+uint16_t readChargerReg16(uint8_t regaddr)
+{
+  Wire.beginTransmission(CHARGER_ADDR);
+  Wire.write(regaddr);
+  Wire.endTransmission(false);
+
+  Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)2);
+  if (Wire.available() < 2) return 0;
+
+  uint16_t lsb = (uint16_t)Wire.read();  // první byte = LSB
+  uint16_t msb = (uint16_t)Wire.read();  // druhý byte = MSB
+
+  return (msb << 8) | lsb;               // složit správně
 }
 
 void writeChargerReg(uint8_t regaddr, uint8_t value)
@@ -251,28 +275,58 @@ void configureChargerDisabled()
 
 bool detectBatteryPresence(uint16_t &batteryMv)
 {
-  // Step 1: disable charging and apply 30 mA discharge
+  // Step 1: Disable charging (EN_CHG = 0)
   uint8_t reg16 = readChargerReg(0x16);
-  reg16 &= ~(1<<5);          // EN_CHG = 0
-  writeChargerReg(0x16, reg16 | (1<<6)); // FORCE_IBATDIS = 1
+  reg16 &= ~(1u << 5);
+  writeChargerReg(0x16, reg16);
+  delay(50);
 
-  delay(5);
+  // Step 2: vynutit vybíjecí proud IBAT (FORCE_IBATDIS = 1) 
+  reg16 |= (1u << 6);                      // bit6 = FORCE_IBATDIS
+  writeChargerReg(0x16, reg16);
+  delay(200);                               // krátký vybíjecí „pulz“
 
-  // Step 2: stop discharge
-  writeChargerReg(0x16, reg16 & ~(1<<6));
+  // Step 3: zrušit vybíjení IBAT (FORCE_IBATDIS = 0) 
+  reg16 &= ~(1u << 6);
+  writeChargerReg(0x16, reg16);
+  delay(20);                               // mezera po pulzu
 
-  // Step 3: one-shot ADC for VBAT
-  uint8_t reg26 = readChargerReg(0x26);
-  reg26 |= (1<<7) | (1<<6); // ADC_EN=1, ADC_RATE=1 (one-shot)
+  // Step 4: povolit VBAT ADC a nastavit one-shot 
+  // (jen pro jistotu zajistíme, že VBAT ADC není zakázaný v REG0x27)
+  uint8_t reg27 = readChargerReg(0x27);    // ADC_FUNCTION_DISABLE_0
+  reg27 &= ~(1u << 4);                     // bit4 = VBAT_ADC_DIS -> 0 = enable
+  writeChargerReg(0x27, reg27);
+
+  uint8_t reg26 = readChargerReg(0x26);    // ADC_CONTROL
+  reg26 |= (1u << 7);                      // bit7 = ADC_EN
+  reg26 |= (1u << 6);                      // bit6 = ADC_RATE = 1 (one-shot)
+  reg26 &= ~(3u << 4);    // ADC_SAMPLE = 00
+  reg26 |= (1u << 1);     // ADC_AVG_INIT = 1
   writeChargerReg(0x26, reg26);
 
-  delay(10); // allow conversion to finish
+  // max doba konverze z datasheetu je ~30 ms, dáme rezervu
+  delay(50);
 
-  uint8_t vbatCode = readChargerReg(0x30); // VBAT ADC result
-  batteryMv = VBAT_ADC_BASE_MV + (uint16_t)vbatCode * VBAT_ADC_LSB_MV;
+  //  Step 5: přečíst VBAT_ADC (REG0x30, bity 12:1) 
+  uint16_t vbatRaw  = readChargerReg16(0x30);
+  uint16_t vbatCode = (vbatRaw >> 1) & 0x0FFF;   // bity 12:1, bit0 je reserved
 
-  // Battery considered present when VBAT is above undervoltage area
-  return batteryMv >= VBAT_PRESENT_THRESHOLD_MV;
+  uint32_t tmp = (uint32_t)vbatCode * VBAT_ADC_LSB_0P01_MV;
+  batteryMv = (uint16_t)(tmp / 100u);               // mV
+
+  // //  Debug výpis 
+  // Serial1.print("#BATDEBUG raw=0x");
+  // Serial1.print(vbatRaw, HEX);
+  // Serial1.print(" bin=0b");
+  // Serial1.print(vbatRaw, BIN);
+  // Serial1.print(" code=");
+  // Serial1.print(vbatCode);
+  // Serial1.print(" mv=");
+  // Serial1.print(batteryMv);
+
+  bool present = (batteryMv >= VBAT_PRESENT_THRESHOLD_MV);
+
+  return present;
 }
 
 
@@ -340,7 +394,7 @@ void EnvOut()
   dataString += String(tm_s100);
   dataString += ",";
 
-  SHT31 sht(0x44);
+  SHT31 sht(SHT31_ADDR_PRIMARY);
   sht.begin();
   sht.read();         //  default = true/fast       slow = false
 
@@ -349,7 +403,7 @@ void EnvOut()
   dataString += String(sht.getHumidity(), 1);
   dataString += String(",");
 
-  SHT31 sht2(0x45);
+  SHT31 sht2(SHT31_ADDR_SECONDARY);
   sht2.begin();
   sht2.read();         //  default = true/fast       slow = false
 
@@ -358,7 +412,7 @@ void EnvOut()
   dataString += String(sht2.getHumidity(), 1);
   dataString += String(",");
 
-  MS5611 MS5611(0x77);
+  MS5611 MS5611(MS5611_ADDR);
   MS5611.begin();
   MS5611.read();           //  note no error checking => "optimistic".
 
@@ -547,6 +601,7 @@ void DataOut()
     dataString += String(histogram[n]);
   }
 
+
   #ifdef DEBUG
     Serial1.println(dataString);  // Debug output to debug terminal        
   #endif
@@ -664,20 +719,26 @@ void setup()
   pinMode(EXT_I2C_EN, OUTPUT);    // Disable external I2C
   digitalWrite(EXT_I2C_EN, LOW);
 
-  // Setup battery charger (default to enabled)
-  configureChargerEnabled();
-
+  // Detect battery presence and configure charger accordingly
+  configureChargerDisabled();
+  delay(100);
+  batteryPresent = detectBatteryPresence(detectedBatteryMv);
+  (batteryPresent) ? configureChargerEnabled() : configureChargerDisabled();
+  
+  // Indicate battery status with LED1: ON if no battery, OFF if battery present
+  // pinMode(LED1, OUTPUT);
+  // digitalWrite(LED1, batteryPresent ? LOW : HIGH);
 
   /* DEBUG VBUS voltage
 uint8_t vbus;
 while(true)
 {
   // Is VBUS (USB) present?
-  Wire.beginTransmission(0x6A);      // ADC of VBUS
+  Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
   //Wire.write(0x2D); // MSB 0.264 V/bit
   Wire.write(0x1E);
   Wire.endTransmission();
-  Wire.requestFrom(0x6A, 1);
+  Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
   vbus = Wire.read();
   Serial1.println(vbus, HEX);
   delay(1000);
@@ -687,14 +748,14 @@ while(true)
   if (digitalRead(ACONNECT))  // Analog board disconnected
   {
     boolean SDreader = true;    // wanted SD reader mode
-    boolean USBchanged = true;  // USB devaci need to be changed
+    boolean USBchanged = true;  // USB device need to be changed
 
     wdt_enable(WDTO_2S);  // watchdog for preventing I2C hanging
     
-    Wire.beginTransmission(0x6A);      // ADC of VBUS
+    Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
     Wire.write(0x2D); // MSB 0.264 V/bit
     Wire.endTransmission();
-    Wire.requestFrom(0x6A, 1);
+    Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
     Wire.read() & 0x7F;
     wdt_reset();
     delay(1000); // Vaiting for stable voltage
@@ -709,10 +770,10 @@ while(true)
 
       {
         // Is VBUS (USB) present?
-        Wire.beginTransmission(0x6A);      // ADC of VBUS
+        Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
         Wire.write(0x2D); // MSB 0.264 V/bit
         Wire.endTransmission();
-        Wire.requestFrom(0x6A, 1);
+        Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
         vbus = Wire.read() & 0x7F;
       }
       wdt_reset();
@@ -721,7 +782,7 @@ while(true)
       {
         digitalWrite(LED2, digitalRead(ACONNECT));
         // discharge analog board detection signal
-        Wire.beginTransmission(0x51); // 1 kHz to #INTA
+        Wire.beginTransmission(RTC_ADDR); // 1 kHz to #INTA
         Wire.write(0x28);
         Wire.write(0x95);             // COF
         Wire.endTransmission();
@@ -744,14 +805,14 @@ while(true)
           digitalWrite(BUZZER, LOW);
         }
         // end discharging of analog board detection signal
-        Wire.beginTransmission(0x51); // High-Z on #INTA
+        Wire.beginTransmission(RTC_ADDR); // High-Z on #INTA
         Wire.write((uint8_t)0x27); // Start register
         Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
         Wire.write(0x95);             // COF
         Wire.endTransmission();
 
         // Power off
-        Wire.beginTransmission(0x6A); // I2C address
+        Wire.beginTransmission(CHARGER_ADDR); // I2C address
         Wire.write((uint8_t)0x18); // Start register
         Wire.write((uint8_t)0x0A); //
         Wire.endTransmission();
@@ -772,7 +833,7 @@ while(true)
           playModeChangeTone();          // Signal mode change to user
 
           // SD card reader on (charger stays as default enabled)
-          Wire.beginTransmission(0x71); // card reader address
+          Wire.beginTransmission(SD_READER_ADDR); // card reader address
           Wire.write((uint8_t)0x00); // Start register
           Wire.write((uint8_t)0b00010011); // 0b0001 0 01 1
           Wire.endTransmission();
@@ -783,7 +844,7 @@ while(true)
           digitalWrite(LED1, LOW);
           playModeChangeTone();          // Signal mode change to user
           // SD card reader off
-          Wire.beginTransmission(0x71); // card reader address
+          Wire.beginTransmission(SD_READER_ADDR); // card reader address
           Wire.write((uint8_t)0x00); // Start register
           Wire.write((uint8_t)0b00010000); // 0b0001 0 00 0
           Wire.endTransmission();
@@ -830,13 +891,13 @@ while(true)
   digitalWrite(DRESET, HIGH);
 
 
-  Wire.beginTransmission(0x51); // disable output n INTA
+  Wire.beginTransmission(RTC_ADDR); // disable output n INTA
   Wire.write((uint8_t)0x27); // Start register
   Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin
   Wire.write((uint8_t)0x97); // 0x28 stop-watch mode, no periodic interrupts, INTA in high-Z
 
   // Initiation of RTC
-  /*Wire.beginTransmission(0x51); // init clock
+  /*Wire.beginTransmission(RTC_ADDR); // init clock
   Wire.write((uint8_t)0x23); // Start register
   Wire.write((uint8_t)0x00); // 0x23
   Wire.write((uint8_t)0x00); // 0x24 Two's complement offset value
@@ -847,15 +908,15 @@ while(true)
   Wire.write((uint8_t)0x00); // 0x29
   Wire.write((uint8_t)0x00); // 0x2a
   Wire.endTransmission();
-  Wire.beginTransmission(0x51); // reset clock
+  Wire.beginTransmission(RTC_ADDR); // reset clock
   Wire.write(0x2f);
   Wire.write(0x2c);
   Wire.endTransmission();
-  Wire.beginTransmission(0x51); // start stop-watch
+  Wire.beginTransmission(RTC_ADDR); // start stop-watch
   Wire.write(0x28);
   Wire.write(0x97);
   Wire.endTransmission();
-  Wire.beginTransmission(0x51); // reset stop-watch
+  Wire.beginTransmission(RTC_ADDR); // reset stop-watch
   Wire.write((uint8_t)0x00); // Start register
   Wire.write((uint8_t)0x00); // 0x00
   Wire.write((uint8_t)0x00); // 0x01
@@ -870,11 +931,11 @@ while(true)
   // make a string for device identification output
   String dataString = "$DOS,"TYPE"," + FWversion + ",0," + githash + ","; // FW version and Git hash
 
-  Wire.beginTransmission(0x5B);                   // request SN from EEPROM - analog board
+  Wire.beginTransmission(EEPROM_ANALOG_ADDR);                   // request SN from EEPROM - analog board
   Wire.write((int)0x08); // MSB
   Wire.write((int)0x00); // LSB
   Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x5B, (uint8_t)16);
+  Wire.requestFrom((uint8_t)EEPROM_ANALOG_ADDR, (uint8_t)16);
   for (int8_t reg=0; reg<16; reg++)
   {
     uint8_t serialbyte = Wire.read(); // receive a byte
@@ -883,11 +944,11 @@ while(true)
   }
 
   dataString += "\r\n$DIG,"DIGTYPE",";
-  Wire.beginTransmission(0x58);                   // request SN from EEPROM - digital board
+  Wire.beginTransmission(EEPROM_DIGITAL_ADDR);                   // request SN from EEPROM - digital board
   Wire.write((int)0x08); // MSB
   Wire.write((int)0x00); // LSB
   Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x58, (uint8_t)16);
+  Wire.requestFrom((uint8_t)EEPROM_DIGITAL_ADDR, (uint8_t)16);
   for (int8_t reg=0; reg<16; reg++)
   {
     uint8_t serialbyte = Wire.read(); // receive a byte
@@ -899,22 +960,22 @@ while(true)
     dataString += String(serialbyte,HEX);
   }
   dataString += ",";
-  Wire.beginTransmission(0x50);                   // request configuration from EEPROM - digital board
+  Wire.beginTransmission(EEPROM_DIGITAL_CFG_ADDR);                   // request configuration from EEPROM - digital board
   Wire.write((int)0x00); // MSB
   Wire.write((int)0x00); // LSB
   Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x50, (uint8_t)2);
+  Wire.requestFrom((uint8_t)EEPROM_DIGITAL_CFG_ADDR, (uint8_t)2);
   DIGconf1 = Wire.read();
   DIGconf2 = Wire.read();
   dataString += String(DIGconf1,HEX);
   dataString += String(DIGconf2,HEX);
 
   dataString += "\r\n$ADC,"ADCTYPE",";
-  Wire.beginTransmission(0x5B);                   // request SN from EEPROM - analog board
+  Wire.beginTransmission(EEPROM_ANALOG_ADDR);                   // request SN from EEPROM - analog board
   Wire.write((int)0x08); // MSB
   Wire.write((int)0x00); // LSB
   Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x5B, (uint8_t)16);
+  Wire.requestFrom((uint8_t)EEPROM_ANALOG_ADDR, (uint8_t)16);
   for (int8_t reg=0; reg<16; reg++)
   {
     uint8_t serialbyte = Wire.read(); // receive a byte
@@ -922,11 +983,11 @@ while(true)
     dataString += String(serialbyte,HEX);
   };
   dataString += ",";
-  Wire.beginTransmission(0x53);                   // request configuration from EEPROM - analog board
+  Wire.beginTransmission(EEPROM_ANALOG_CFG_ADDR);                   // request configuration from EEPROM - analog board
   Wire.write((int)0x00); // MSB
   Wire.write((int)0x00); // LSB
   Wire.endTransmission();
-  Wire.requestFrom((uint8_t)0x53, (uint8_t)2);
+  Wire.requestFrom((uint8_t)EEPROM_ANALOG_CFG_ADDR, (uint8_t)2);
   ADCconf1 = Wire.read();
   ADCconf2 = Wire.read();
   dataString += String(ADCconf1,HEX);
@@ -1049,7 +1110,7 @@ inline void PostIntegration()
   digitalWrite(LED2, digitalRead(ACONNECT));
   if (digitalRead(ACONNECT))  // Analog part is disconnected?
   {
-    Wire.beginTransmission(0x51); // 1024 Hz to #INTA
+    Wire.beginTransmission(RTC_ADDR); // 1024 Hz to #INTA
     Wire.write((uint8_t)0x27); // Start register
     Wire.write((uint8_t)0x00); // 0x27 Enable CLX output on INTA pin, using bits set in reg 0x28
     Wire.write(0x95);             // COF
@@ -1067,7 +1128,7 @@ inline void PostIntegration()
       digitalWrite(BUZZER, LOW);
     }
 
-    Wire.beginTransmission(0x51); // High-Z on #INTA
+    Wire.beginTransmission(RTC_ADDR); // High-Z on #INTA
     Wire.write((uint8_t)0x27); // Start register
     Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
     Wire.write(0x95);             // COF
@@ -1075,7 +1136,7 @@ inline void PostIntegration()
 
 
     // Power off
-    Wire.beginTransmission(0x6A); // I2C address
+    Wire.beginTransmission(CHARGER_ADDR); // I2C address
     Wire.write((uint8_t)0x18); // Start register
     Wire.write((uint8_t)0x0A); //
     Wire.endTransmission();
