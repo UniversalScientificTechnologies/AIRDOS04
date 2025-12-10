@@ -217,61 +217,52 @@ void writeChargerReg(uint8_t regaddr, uint8_t value)
   Wire.endTransmission();
 }
 
-void configureChargerEnabled()
+// Single charger configuration function: enable or disable charging
+void configCharger(bool EnCharging)
 {
+  // Input current limit register (same in both modes)
   Wire.beginTransmission(CHARGER_ADDR);
   Wire.write((uint8_t)0x02); // Input current limit register
   Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
   Wire.endTransmission();
 
+  // Charge control block: different payload depending on desired state
   Wire.beginTransmission(CHARGER_ADDR);
   Wire.write((uint8_t)0x14); // Charge control block
-  Wire.write((uint8_t)0b00100110);
-  Wire.write((uint8_t)0b00011001);
-  Wire.write((uint8_t)0b10100000); // Enable charger
-  Wire.write((uint8_t)0b01010110);
-  Wire.write((uint8_t)0b00000000);
-  Wire.write((uint8_t)0b00000001);
+  if (EnCharging)
+  {
+    Wire.write((uint8_t)0b00100110);
+    Wire.write((uint8_t)0b00011001);
+    Wire.write((uint8_t)0b10100000); // Enable charger
+    Wire.write((uint8_t)0b01010110);
+    Wire.write((uint8_t)0b00000000);
+    Wire.write((uint8_t)0b00000001);
+  }
+  else
+  {
+    Wire.write((uint8_t)0b00100110);
+    Wire.write((uint8_t)0b10011001);
+    Wire.write((uint8_t)0b00000000); // Disable charger
+    Wire.write((uint8_t)0b01010110);
+    Wire.write((uint8_t)0b00000000);
+    Wire.write((uint8_t)0b00000001);
+  }
   Wire.endTransmission();
 
+  // NTC configuration (same in both modes)
   Wire.beginTransmission(CHARGER_ADDR); // NTC
   Wire.write((uint8_t)0x1a);
   Wire.write((uint8_t)0b10111111);
   Wire.endTransmission();
 
+  // ADC configuration (same in both modes)
   Wire.beginTransmission(CHARGER_ADDR); // ADC configuration
   Wire.write((uint8_t)0x26);
   Wire.write((uint8_t)0b10001100);
   Wire.endTransmission();
 }
 
-void configureChargerDisabled()
-{
-  Wire.beginTransmission(CHARGER_ADDR);
-  Wire.write((uint8_t)0x02); // Input current limit register
-  Wire.write((uint8_t)(int(440/40))<<5); // 440 mA
-  Wire.endTransmission();
 
-  Wire.beginTransmission(CHARGER_ADDR);
-  Wire.write((uint8_t)0x14); // Charge control block
-  Wire.write((uint8_t)0b00100110);
-  Wire.write((uint8_t)0b10011001);
-  Wire.write((uint8_t)0b00000000); // Disable charger (matches AIRDOS04X)
-  Wire.write((uint8_t)0b01010110);
-  Wire.write((uint8_t)0b00000000);
-  Wire.write((uint8_t)0b00000001);
-  Wire.endTransmission();
-
-  Wire.beginTransmission(CHARGER_ADDR); // NTC
-  Wire.write((uint8_t)0x1a);
-  Wire.write((uint8_t)0b10111111);
-  Wire.endTransmission();
-
-  Wire.beginTransmission(CHARGER_ADDR); // ADC configuration
-  Wire.write((uint8_t)0x26);
-  Wire.write((uint8_t)0b10001100);
-  Wire.endTransmission();
-}
 
 bool detectBatteryPresence(uint16_t &batteryMv)
 {
@@ -304,7 +295,7 @@ bool detectBatteryPresence(uint16_t &batteryMv)
   reg26 |= (1u << 1);     // ADC_AVG_INIT = 1
   writeChargerReg(0x26, reg26);
 
-  // max doba konverze z datasheetu je ~30 ms, dáme rezervu
+  // dle datasheetu ~30 ms pro prevod ADC
   delay(50);
 
   //  Step 5: přečíst VBAT_ADC (REG0x30, bity 12:1) 
@@ -720,10 +711,10 @@ void setup()
   digitalWrite(EXT_I2C_EN, LOW);
 
   // Detect battery presence and configure charger accordingly
-  configureChargerDisabled();
+  configCharger(false);
   delay(100);
   batteryPresent = detectBatteryPresence(detectedBatteryMv);
-  (batteryPresent) ? configureChargerEnabled() : configureChargerDisabled();
+  configCharger(batteryPresent);
   
   // Indicate battery status with LED1: ON if no battery, OFF if battery present
   // pinMode(LED1, OUTPUT);
