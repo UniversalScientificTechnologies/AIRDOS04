@@ -161,6 +161,136 @@ void readRTC()
   tm = tm * 60 * 60 + tm_min * 60 + tm_sec;
 }
 
+// Read single register from RTC (PCF? at address RTC_ADDR)
+uint8_t readRTCreg(uint8_t reg)
+{
+  Wire.beginTransmission(RTC_ADDR);
+  Wire.write(reg);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)RTC_ADDR, (uint8_t)1);
+  if (Wire.available()) return (uint8_t)Wire.read();
+  return 0xFF; // error
+}
+
+// Write single register to RTC
+void writeRTCreg(uint8_t reg, uint8_t value)
+{
+  Wire.beginTransmission(RTC_ADDR);
+  Wire.write(reg);
+  Wire.write(value);
+  Wire.endTransmission();
+}
+
+// Reset RTC into stopwatch mode using the provided initialization sequence
+// and append a log entry to SD card (assumes SD is already initialized and `filename` is set).
+void ResetRTC(uint8_t prev07, uint8_t prev28)
+{
+  // Use the exact sequence provided in AIRDOS04X for initialization
+  Wire.beginTransmission(RTC_ADDR); // init clock
+  Wire.write((uint8_t)0x23); // Start register
+  Wire.write((uint8_t)0x00); // 0x23
+  Wire.write((uint8_t)0x00); // 0x24 Two's complement offset value
+  Wire.write((uint8_t)0b00000101); // 0x25 Normal offset correction, disable low-jitter mode, set load caps to 6 pF
+  Wire.write((uint8_t)0x00); // 0x26 Battery switch reg, same as after a reset
+  Wire.write((uint8_t)0x00); // 0x27 Enable CLK pin, using bits set in reg 0x28
+  Wire.write((uint8_t)0x97); // 0x28 stop watch mode, no periodic interrupts, CLK pin off
+  Wire.write((uint8_t)0x00); // 0x29
+  Wire.write((uint8_t)0x00); // 0x2a
+  Wire.endTransmission();
+
+  Wire.beginTransmission(RTC_ADDR); // reset clock
+  Wire.write(0x2f);
+  Wire.write(0x2c);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(RTC_ADDR); // start stop-watch
+  Wire.write(0x28);
+  Wire.write(0x97);
+  Wire.endTransmission();
+
+  Wire.beginTransmission(RTC_ADDR); // reset stop-watch
+  Wire.write((uint8_t)0x00); // Start register
+  Wire.write((uint8_t)0x00); // 0x00
+  Wire.write((uint8_t)0x00); // 0x01
+  Wire.write((uint8_t)0x00); // 0x02
+  Wire.write((uint8_t)0x00); // 0x03
+  Wire.write((uint8_t)0x00); // 0x04
+  Wire.write((uint8_t)0x00); // 0x05
+  Wire.endTransmission();
+
+  // Log action to SD card and UART1
+  readRTC();
+  String s = "$RTCCHK,";
+  s += String(tm);
+  s += ".";
+  s += String(tm_s100);
+  s += ",INIT,reg07=0x";
+  if (prev07 < 16) s += "0";
+  s += String(prev07, HEX);
+  s += ",reg28=0x";
+  if (prev28 < 16) s += "0";
+  s += String(prev28, HEX);
+
+  Serial1.println(s);  // Output to debug UART
+
+  if (SDinserted)
+  {
+    if (SD.begin(SS))
+    {
+      File logf = SD.open(filename, FILE_WRITE);
+      if (logf)
+      {
+        logf.println(s);
+        logf.close();
+      }
+    }
+  }
+}
+
+// Verify RTC registers: reg 0x07 bit7 == 0 and reg 0x28 bit4 (RTCM) == 1.
+// If not in required mode, initialize to stopwatch and log the change.
+void CheckRTCconfig()
+{
+  uint8_t r07 = readRTCreg(0x07);
+  uint8_t r28 = readRTCreg(0x28);
+
+  bool ok07 = ((r07 & 0x80) == 0); // bit7 must be zero
+  bool okRTCM = ((r28 & (1<<4)) != 0); // RTCM (bit4) must be 1
+
+  if (!ok07 || !okRTCM)
+  {
+    ResetRTC(r07, r28);
+  } else {
+    // RTC config is OK - log to SD and UART1
+    readRTC();
+    String s = "$RTCCHK,";
+    s += String(tm);
+    s += ".";
+    s += String(tm_s100);
+    s += ",OK,reg07=0x";
+    if (r07 < 16) s += "0";
+    s += String(r07, HEX);
+    s += ",reg28=0x";
+    if (r28 < 16) s += "0";
+    s += String(r28, HEX);
+
+    Serial1.println(s);  // Output to debug UART
+
+    if (SDinserted)
+    {
+      if (SD.begin(SS))
+      {
+        File logf = SD.open(filename, FILE_WRITE);
+        if (logf)
+        {
+          logf.println(s);
+          logf.close();
+        }
+      }
+    }
+  }
+}
+
 int16_t readBat(int8_t regaddr)
 {
   Wire.beginTransmission(BQ34Z100);
@@ -248,7 +378,6 @@ void configCharger(bool EnCharging)
     Wire.write((uint8_t)0b00000001);
   }
   Wire.endTransmission();
-
   // NTC configuration (same in both modes)
   Wire.beginTransmission(CHARGER_ADDR); // NTC
   Wire.write((uint8_t)0x1a);
@@ -1047,6 +1176,11 @@ while(true)
       SDinserted = false;
     }
     Serial1.println(dataString);  // print SN to terminal
+
+    // Check RTC registers and initialize to stopwatch mode if necessary.
+    // SD is already initialized here and `filename` set, so logging is possible.
+    CheckRTCconfig();
+
     digitalWrite(SPI_MUX_SEL, HIGH); // ADC
   }
 
