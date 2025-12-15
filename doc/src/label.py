@@ -26,17 +26,17 @@ TEXT2 = "" \
 "3) ERASED – date and time when stored data are erased from the module. " \
 "Make sure the log is complete before returning the module for processing or reinserting it into a detector."
 
-def draw_label(c, x, y, w, h, total_rows=11):
+def draw_label(c, x, y, w, h, total_rows=13):
     margin = 4 * mm
 
-    c.setLineWidth(0.7)
+    c.setLineWidth(0.1)
     c.rect(x, y, w, h)
 
     header_height = 14 * mm
     c.setFont("Helvetica-Bold", 11)
-    c.drawCentredString(x + w / 2.0, y + h - margin - 5 * mm, LABEL_TITLE)
+    c.drawCentredString(x + w / 2.0, y + h - margin - 2 * mm, LABEL_TITLE)
 
-    table_top = y + h - margin - header_height
+    table_top = y + h - header_height
     footer_height = 26 * mm
     table_bottom = y + margin + footer_height
 
@@ -174,7 +174,7 @@ def create_single_label_pdf(path):
     x = (page_w - label_w) / 2.0
     y = (page_h - label_h) / 2.0
 
-    draw_label(c, x, y, label_w, label_h, total_rows=11)
+    draw_label(c, x, y, label_w, label_h)
     c.showPage()
     c.save()
 
@@ -197,7 +197,7 @@ def create_2up_label_sheet_pdf(path):
         for col in range(cols):
             x = x_start + col * (label_w + spacing)
             y = page_h - (row + 1) * label_h - top_margin  # Adjust y position for top margin
-            draw_label(c, x, y, label_w, label_h, total_rows=11)
+            draw_label(c, x, y, label_w, label_h)
 
     c.showPage()
     c.save()
@@ -216,7 +216,7 @@ def create_8up_label_sheet_pdf(path):
         for col in range(cols):
             x = col * label_w
             y = page_h - (row + 1) * label_h
-            draw_label(c, x, y, label_w, label_h, total_rows=11)
+            draw_label(c, x, y, label_w, label_h)
 
     c.showPage()
     c.save()
