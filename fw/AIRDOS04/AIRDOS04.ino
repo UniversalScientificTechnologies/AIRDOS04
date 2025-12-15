@@ -655,7 +655,7 @@ void DataOut()
   {
     count = 0;
     fn++;
-    filename = String(fn) + ".txt";
+    filename = String(fn) + ".TXT";
     Serial1.print("#Filename,");
     Serial1.println(filename);
   }
@@ -1001,11 +1001,11 @@ while(true)
     }
     for (fn = 1; fn<MAXFILES; fn++) // find last file
     {
-       filename = String(fn) + ".txt";
+       filename = String(fn) + ".TXT";
        if (SD.exists(filename) == 0) break;
     }
 //    fn--;
-    filename = String(fn) + ".txt";
+    filename = String(fn) + ".TXT";
 
     for( uint8_t n=0; n<5; n++)
     {
@@ -1028,7 +1028,7 @@ while(true)
     {
       dataFile.close();
       fn++;
-      filename = String(fn) + ".txt";
+      filename = String(fn) + ".TXT";
       dataFile = SD.open(filename, FILE_WRITE);
     }
     Serial1.print("#Filename,");
