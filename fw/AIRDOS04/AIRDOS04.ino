@@ -78,6 +78,7 @@ https://github.com/RobTillaart/MS5611
 #include <SHT31.h>
 #include <MS5611.h>
 #include <avr/wdt.h>
+#include "eeprom_layout.h"
 
 #define CONV        0    // PB0, MOLEX B0, D Q, ADC CONV signal
 #define DRESET      22   // PC6, MOLEX C0, D #Reset
@@ -144,6 +145,8 @@ uint8_t bcdToDec(uint8_t b)
 
 uint32_t tm;
 uint8_t tm_s100;
+uint32_t rtc_current_time;  // Current RTC time in seconds
+uint32_t eeprom_sync_time;  // Last sync time from EEPROM
 
 void readRTC()
 {
@@ -392,6 +395,75 @@ void configCharger(bool EnCharging)
 }
 
 
+
+// Convert Unix timestamp to human readable format (UTC)
+void unixToDateTime(uint32_t unix_time, uint16_t &year, uint8_t &month, uint8_t &day, 
+                    uint8_t &hour, uint8_t &minute, uint8_t &second)
+{
+  second = unix_time % 60;
+  unix_time /= 60;
+  minute = unix_time % 60;
+  unix_time /= 60;
+  hour = unix_time % 24;
+  unix_time /= 24;
+  
+  uint16_t days = unix_time;
+  year = 1970;
+  
+  while (true)
+  {
+    uint16_t days_in_year = ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) ? 366 : 365;
+    if (days < days_in_year) break;
+    days -= days_in_year;
+    year++;
+  }
+  
+  uint8_t days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) days_in_month[1] = 29;
+  
+  month = 1;
+  while (days >= days_in_month[month - 1])
+  {
+    days -= days_in_month[month - 1];
+    month++;
+  }
+  day = days + 1;
+}
+
+// Read EEPROM structure from internal EEPROM
+bool readEEPROMRecord(uint8_t eeprom_addr, eeprom::EepromRecord &record)
+{
+  Wire.beginTransmission(eeprom_addr);
+  Wire.write((uint8_t)0x00); // MSB - start from address 0
+  Wire.write((uint8_t)0x00); // LSB
+  Wire.endTransmission();
+  
+  uint8_t* ptr = (uint8_t*)&record;
+  uint8_t bytesRead = 0;
+  
+  // Read in chunks due to Wire buffer limitations
+  while (bytesRead < sizeof(eeprom::EepromRecord))
+  {
+    uint8_t toRead = min(sizeof(eeprom::EepromRecord) - bytesRead, 16);
+    Wire.requestFrom(eeprom_addr, toRead);
+    
+    while (Wire.available() && bytesRead < sizeof(eeprom::EepromRecord))
+    {
+      ptr[bytesRead++] = Wire.read();
+    }
+    
+    if (bytesRead < sizeof(eeprom::EepromRecord))
+    {
+      // Set address for next chunk
+      Wire.beginTransmission(eeprom_addr);
+      Wire.write((uint8_t)(bytesRead >> 8));   // MSB
+      Wire.write((uint8_t)(bytesRead & 0xFF)); // LSB
+      Wire.endTransmission();
+    }
+  }
+  
+  return (bytesRead == sizeof(eeprom::EepromRecord));
+}
 
 bool detectBatteryPresence(uint16_t &batteryMv)
 {
@@ -1048,6 +1120,67 @@ while(true)
 
   wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
 
+  // Read current RTC time
+  readRTC();
+  rtc_current_time = tm;
+  Serial1.print("#RTC_TIME,");
+  Serial1.println(rtc_current_time);
+
+  // Read sync_time from internal EEPROM
+  eeprom::EepromRecord eeprom_record;
+  if (readEEPROMRecord(EEPROM_DIGITAL_CFG_ADDR, eeprom_record))
+  {
+    eeprom_sync_time = eeprom_record.sync_time;
+    Serial1.print("#EEPROM_SYNC_TIME,");
+    Serial1.println(eeprom_sync_time);
+    Serial1.print("#EEPROM_INIT_TIME,");
+    Serial1.println(eeprom_record.init_time);
+    Serial1.print("#EEPROM_SYNC_RTC_SECONDS,");
+    Serial1.println(eeprom_record.sync_rtc_seconds);
+  }
+  else
+  {
+    Serial1.println("#EEPROM read failed");
+    eeprom_sync_time = 0;
+  }
+
+  // Calculate current Unix time: RTC_time + sync_time
+  uint32_t current_unix_time = 0;
+  uint32_t sync_age = 0;  // Age of synchronization in seconds
+  if (eeprom_sync_time > 0)
+  {
+    current_unix_time = rtc_current_time + eeprom_sync_time;
+    sync_age = rtc_current_time - eeprom_record.sync_rtc_seconds;
+  }
+
+  // Convert to human readable format
+  uint16_t year;
+  uint8_t month, day, hour, minute, second;
+  unixToDateTime(current_unix_time, year, month, day, hour, minute, second);
+
+  // Output current time to Serial1 (debug)
+  Serial1.print("#SYNC_AGE,");
+  Serial1.println(sync_age);
+  Serial1.print("#CURRENT_UNIX_TIME,");
+  Serial1.println(current_unix_time);
+  Serial1.print("#CURRENT_TIME,");
+  Serial1.print(year);
+  Serial1.print("-");
+  if (month < 10) Serial1.print("0");
+  Serial1.print(month);
+  Serial1.print("-");
+  if (day < 10) Serial1.print("0");
+  Serial1.print(day);
+  Serial1.print(" ");
+  if (hour < 10) Serial1.print("0");
+  Serial1.print(hour);
+  Serial1.print(":");
+  if (minute < 10) Serial1.print("0");
+  Serial1.print(minute);
+  Serial1.print(":");
+  if (second < 10) Serial1.print("0");
+  Serial1.println(second);
+
   // make a string for device identification output
   String dataString = "$DOS,"TYPE"," + FWversion + ",0," + githash + ","; // FW version and Git hash
 
@@ -1117,6 +1250,34 @@ while(true)
   dataString += batteryPresent ? "1" : "0";
   dataString += ",";
   dataString += String(detectedBatteryMv);
+
+  // Add time information to log header
+  dataString += "\r\n$TIME,";
+  dataString += String(rtc_current_time);  // RTC time in seconds
+  dataString += ",";
+  dataString += String(eeprom_sync_time);  // Last sync time from EEPROM
+  dataString += ",";
+  dataString += String(current_unix_time); // Current Unix timestamp
+  dataString += ",";
+  dataString += String(sync_age);          // Age of synchronization in seconds
+  dataString += ",";
+  // Human readable time: YYYY-MM-DD HH:MM:SS
+  dataString += String(year);
+  dataString += "-";
+  if (month < 10) dataString += "0";
+  dataString += String(month);
+  dataString += "-";
+  if (day < 10) dataString += "0";
+  dataString += String(day);
+  dataString += " ";
+  if (hour < 10) dataString += "0";
+  dataString += String(hour);
+  dataString += ":";
+  if (minute < 10) dataString += "0";
+  dataString += String(minute);
+  dataString += ":";
+  if (second < 10) dataString += "0";
+  dataString += String(second);
 
   // Filename selection and initial write to SD card
   {
