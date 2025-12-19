@@ -21,11 +21,6 @@ jobs:
             type: AIRDOS04
             channels: 0
             fqbn: clock=8MHz_external
-
-          - name: AIRDOS04X
-            type: AIRDOS04X
-            channels: 0
-            fqbn: clock=8MHz_external
             
           # - name: LABDOS_1024
           #   type: LABDOS
