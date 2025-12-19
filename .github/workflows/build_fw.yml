@@ -169,12 +169,25 @@ jobs:
         id: last-commit-message
         run: |
           echo "msg=$(git log -1 --pretty=%s)" >> $GITHUB_OUTPUT
+
+      - name: Generate file pattern
+        id: file-pattern
+        run: |
+          # Build file pattern dynamically based on what exists
+          PATTERN="fw/build/*"
+          for dir in fw/*/githash.h; do
+            if [ -f "$dir" ]; then
+              TYPE=$(dirname "$dir" | cut -d'/' -f2)
+              PATTERN="$PATTERN fw/$TYPE/githash.h fw/$TYPE/nextversion"
+            fi
+          done
+          echo "pattern=$PATTERN" >> $GITHUB_OUTPUT
+          echo "Generated pattern: $PATTERN"
           
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: ${{ steps.last-commit-message.outputs.msg }}, extended build
-          file_pattern: 'fw/build/* fw/AIRDOS04/githash.h fw/AIRDOS04/nextversion'
+          file_pattern: ${{ steps.file-pattern.outputs.pattern }}
           #commit_options: '--amend --no-edit'
           #push_options: '--force'
-          skip_fetch: true
 
