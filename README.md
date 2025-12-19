@@ -7,9 +7,9 @@ The upgraded version of [AIRDOS02](https://github.com/UniversalScientificTechnol
 ## Design features 
 
   - Rechargeable accumulators integrated with data storage in the hot-swap module called [BATDATUNIT01](https://docs.dos.ust.cz/airdos/BATDATUNIT01)
-    - The changeable module allows new possible features in the future like GNSS-based position logging with a revised module 
+    - The changeable module allows new possible features in the future, like GNSS-based position logging with a revised module 
   - One month of continuous logging for a single accumulator charge
-  - Easy activation by insertion of BATDATUNIT module into the device
+  - Easy measurement activation by insertion of the BATDATUNIT module
   - Data download without special software (Mass storage media)
   - Continuously incrementing time marks (Unique logging time from every measurement) 
 
@@ -28,25 +28,15 @@ Purchase AIRDOS04, the open-source device designed for versatility, from [Univer
   * Radiation spectra integration time 10 s
   * Maintenance interval (data download, battery recharge)  30 days
   * Maintenance duration under 5 minutes
-  * Approx size LxWxH 166 mm x 107 mm x 57 mm (two  of these should fit to Aircraft printed manual bay)
+  * Approx size LxWxH 166 mm x 107 mm x 57 mm (two  of these should fit into the Aircraft printed manual bay)
   * Weight is 0.88 kg (With five accumulator cells in [BATDATUNIT01](https://github.com/mlab-modules/BATDATUNIT01))
   * Environmental operational conditions
     * Device protection: IP30 rating (fully assembled)
     * Operation temperature range: 0°C to 50°C (32°F to 122°F)
     * Operation humidity conditions: non-condensing, 20% to 80% RH
 
-
 ## Example data
-
 
 ![AIRDOS04 radiation spectra measurement](doc/img/AIRDOS04_radiation_spectra.png)
 
-
 ![AIRDOS04 flight dose rate measurement](doc/img/AIRDOS04_doserate.png)
-
-
-## The detailed documentation of the used Hardware components
-
-  * [BATDATUNIT01](https://github.com/mlab-modules/BATDATUNIT01)
-  * [BATDATSOCKET01](https://github.com/mlab-modules/BATDATSOCKET01)
-  * [USTSIPIN03](https://github.com/ust-modules/USTSIPIN03)
