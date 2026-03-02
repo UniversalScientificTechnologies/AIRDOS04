@@ -108,7 +108,7 @@ jobs:
             fw/AIRDOS04X/nextversion
             fw/AIRDOS04X/githash.h
             root
-        retention-days: 1
+          retention-days: 1
 
   commit:
     if: github.event_name != 'release'
