@@ -7,8 +7,8 @@
     "variant": "standard"
   },
   "bootloader": {
-    "efuse": "0xFF",
-    "hfuse": "0xD6",
+    "efuse": "0xFD",
+    "hfuse": "0xD7",
     "lfuse": "0xF7",
     "lock_bits": "0xCF",
     "unlock_bits": "0xFF",
