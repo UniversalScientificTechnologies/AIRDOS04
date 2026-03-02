@@ -115,10 +115,12 @@ jobs:
     runs-on: ubuntu-latest
     needs: [build]
     steps:
+      # PAT: Personal Access Token with repo scope, for private submodules (e.g. doc/assets)
       - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: true
+          token: ${{ secrets.PAT }}
 
       - run: |
           rm -rf fw/build fw/artifacts
