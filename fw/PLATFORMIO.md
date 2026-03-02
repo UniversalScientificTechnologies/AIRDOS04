@@ -3,9 +3,9 @@
 ## MCU / board
 
 - MCU: `ATmega1284P`
-- Core: `MightyCore` (3.1.0)
+- Core: `MightyCore` (3.0.2)
 - Clock: external `8 MHz`
-- Bootloader: **Urboot** (MightyCore 3.1.0), UART1, autobaud, no LED
+- Bootloader: **Urboot** (MightyCore 3.0.2), UART1, autobaud, no LED
 
 ## Build
 
