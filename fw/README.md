@@ -1,5 +1,43 @@
 ## How to compile firmware
 
+## PlatformIO (recommended)
+
+PlatformIO is set up as two projects:
+
+- `fw/AIRDOS04/` (firmware `AIRDOS04.ino`)
+- `fw/AIRDOS04X/` (firmware `AIRDOS04X.ino`)
+
+Shared board definition + docs live in `fw/`.
+
+### Build
+
+```bash
+cd fw/AIRDOS04
+pio run
+
+cd fw/AIRDOS04X
+pio run
+```
+
+### Upload firmware (UART1 bootloader)
+
+```bash
+cd fw/AIRDOS04
+pio run -t upload --upload-port /dev/ttyUSB0
+
+cd fw/AIRDOS04X
+pio run -t upload --upload-port /dev/ttyUSB0
+```
+
+### Burn bootloader (STK500v2)
+
+```bash
+cd fw/AIRDOS04
+pio run -e bootloader_stk500v2 -t upload --upload-port /dev/ttyUSB0
+```
+
+## Arduino CLI
+
 ### Prerequisites
 
 Install arduino-cli and required libraries:

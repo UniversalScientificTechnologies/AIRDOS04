@@ -1,4 +1,5 @@
 fw/*/build
+.pio
 
 # For PCBs designed using KiCad: http://www.kicad-pcb.org/
 

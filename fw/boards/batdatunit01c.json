@@ -1,0 +1,33 @@
+{
+  "build": {
+    "core": "MightyCore",
+    "extra_flags": "-DARDUINO_AVR_ATmega1284",
+    "f_cpu": "8000000L",
+    "mcu": "atmega1284p",
+    "variant": "standard"
+  },
+  "bootloader": {
+    "efuse": "0xFF",
+    "hfuse": "0xD6",
+    "lfuse": "0xF7",
+    "lock_bits": "0xCF",
+    "unlock_bits": "0xFF",
+    "file": "urboot/atmega1284/watchdog_1_s/autobaud/uart1_rxd2_txd3/no-led/urboot_atmega1284.hex"
+  },
+  "debug": {
+    "simavr_target": "atmega1284p"
+  },
+  "frameworks": [
+    "arduino"
+  ],
+  "name": "BATDATUNIT01C (ATmega1284P, 8 MHz, UART1)",
+  "upload": {
+    "maximum_ram_size": 16384,
+    "maximum_size": 130048,
+    "protocol": "arduino",
+    "require_upload_port": true,
+    "speed": 57600
+  },
+  "url": "https://github.com/MCUdude/MightyCore",
+  "vendor": "UST"
+}

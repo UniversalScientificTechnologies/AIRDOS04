@@ -4,165 +4,136 @@ on:
   push:
     paths:
     - 'fw/**'
-    - '*/*.yml'    
+    - '.github/**'
   workflow_dispatch:
   workflow_call:
     inputs:
       build_type:
         required: false
         type: string
+
 jobs:
   build:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - name: AIRDOS04
-            type: AIRDOS04
-            channels: 0
-            fqbn: clock=8MHz_external
-            
-          # - name: LABDOS_1024
-          #   type: LABDOS
-          #   channels: 1024
-          #   fqbn: clock=8MHz_external
-    
-          # - name: LABDOS_512_16Mhz
-          #   type: LABDOS
-          #   fqbn: clock=16MHz_external
-          #   channels: 512
-            
-          # - name: LABDOS_1024_16Mhz
-          #   type: LABDOS
-          #   fqbn: clock=16MHz_external
-          #   channels: 1024
-            
-          # - name: UAVDOS
-          #   type: UAVDOS
-          #   fqbn: clock=8MHz_external
-          #   channels: 0
-
     steps:
-        - name: Checkout
-          uses: actions/checkout@v4
-          continue-on-error: true
-          with:
-            submodules: False
-        
-        - name: Update githash.h and compile  
-          run: |
-            BUILD_TYPE="${{ inputs.build_type }}"
-            BT="CIBuild"
-            if [ "$BUILD_TYPE" = "B" ]; then
-              BT="Beta"
-            fi
-            if [ "$BUILD_TYPE" = "R" ]; then
-              BT="Release"
-            fi 
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: false
 
-            PREVMAJOR=`cat fw/${{ matrix.type }}/nextversion|grep MAJOR|cut -d ' ' -f 2`
-            PREVMINOR=`cat fw/${{ matrix.type }}/nextversion|grep MINOR|cut -d ' ' -f 2`
-            NEXTRELEASE=`cat fw/${{ matrix.type }}/nextversion|grep RELEASE|cut -d ' ' -f 2`
-            NEXTBUILD=`cat fw/${{ matrix.type }}/nextversion|grep BUILD|cut -d ' ' -f 2`
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
 
-            CURMAJOR=`cat fw/${{ matrix.type }}/${{ matrix.type }}.ino|grep MAJOR|head -n 1|cut -d ' ' -f 3`
-            CURMINOR=`cat fw/${{ matrix.type }}/${{ matrix.type }}.ino|grep MINOR|head -n 1|cut -d ' ' -f 3`
+      - name: Install PlatformIO
+        run: pip install platformio
 
-            if [ "$CURMAJOR" = "$PREVMAJOR" ] && [ "$CURMINOR" = "$PREVMINOR" ]; then
-              echo "Same version"
-            else
-              echo "New version, set release to 0"
-              NEXTRELEASE=0
-            fi
+      - name: Update githash.h and build firmware
+        run: |
+          BUILD_TYPE="${{ inputs.build_type }}"
+          BT="CIBuild"
+          if [ "$BUILD_TYPE" = "B" ]; then
+            BT="Beta"
+          fi
+          if [ "$BUILD_TYPE" = "R" ]; then
+            BT="Release"
+          fi
 
-            echo "// This file is overwritten by github actions, do not update it manually" > githash.h
-            echo "String githash = \"${{ github.sha }},${BT}\";" >> githash.h
-            echo "#define GHRELEASE ${NEXTRELEASE}" >> githash.h
-            echo "#define GHBUILD ${NEXTBUILD}" >> githash.h
-            echo "#define GHBUILDTYPE ${BT}" >> githash.h
+          # Version from AIRDOS04
+          PREVMAJOR=$(grep MAJOR fw/AIRDOS04/nextversion | cut -d ' ' -f 2)
+          PREVMINOR=$(grep MINOR fw/AIRDOS04/nextversion | cut -d ' ' -f 2)
+          NEXTRELEASE=$(grep RELEASE fw/AIRDOS04/nextversion | cut -d ' ' -f 2)
+          NEXTBUILD=$(grep BUILD fw/AIRDOS04/nextversion | cut -d ' ' -f 2)
+          CURMAJOR=$(grep '^#define MAJOR' fw/AIRDOS04/AIRDOS04.ino | head -n 1 | awk '{print $3}')
+          CURMINOR=$(grep '^#define MINOR' fw/AIRDOS04/AIRDOS04.ino | head -n 1 | awk '{print $3}')
 
-            mv githash.h fw/${{ matrix.type }}/
+          if [ "$CURMAJOR" != "$PREVMAJOR" ] || [ "$CURMINOR" != "$PREVMINOR" ]; then
+            NEXTRELEASE=0
+          fi
 
-            sudo snap install arduino-cli
-            arduino-cli core update-index --additional-urls https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json,https://mcudude.github.io/MightyCore/package_MCUdude_MightyCore_index.json > /dev/null
-            arduino-cli core install MightyCore:avr@2.2.2 --additional-urls https://mcudude.github.io/MiniCore/package_MCUdude_MiniCore_index.json,https://mcudude.github.io/MightyCore/package_MCUdude_MightyCore_index.json > /dev/null
-            arduino-cli lib install "SHT31"
-            arduino-cli lib install "MS5611"
-            
-            PLATFORM=MightyCore:avr
-            arduino-cli compile --verbose --warnings all --fqbn MightyCore:avr:1284:BOD=disabled,LTO=Os,${{ matrix.fqbn }},variant=modelP,bootloader=uart1 --build-property compiler.cpp.extra_flags="-DCHANNELS=${{ matrix.channels }}" --build-path fw/${{ matrix.type }}/build/  fw/${{ matrix.type }}
+          echo "// This file is overwritten by github actions, do not update it manually" > fw/AIRDOS04/githash.h
+          echo "String githash = \"${{ github.sha }},${BT}\";" >> fw/AIRDOS04/githash.h
+          echo "#define GHRELEASE ${NEXTRELEASE}" >> fw/AIRDOS04/githash.h
+          echo "#define GHBUILD ${NEXTBUILD}" >> fw/AIRDOS04/githash.h
+          echo "#define GHBUILDTYPE ${BT}" >> fw/AIRDOS04/githash.h
+          cp fw/AIRDOS04/githash.h fw/AIRDOS04X/githash.h
 
-            cd fw/${{ matrix.type }}/build/
-            find -type f -name "*.hex" -exec bash -c 'mv $0 fw_${{ matrix.type }}_${{ matrix.name }}.latest-'"${BT}"'$(echo $0|sed -e "s/\.\///1"|sed -e "s/${{ matrix.type }}\.ino//g")' {} \;
-            cd ../../..
+          # Build AIRDOS04
+          cd fw/AIRDOS04
+          pio run
+          cd ../..
 
-            rm fw/build -r || true
-            mv fw/${{ matrix.type }}/build fw/build
+          # Build AIRDOS04X
+          cd fw/AIRDOS04X
+          pio run
+          cd ../..
 
-            NEXTBUILD=`echo $NEXTBUILD"+1"|bc`
+          # Prepare fw/build with named hex files
+          rm -rf fw/build
+          mkdir -p fw/build
+          cp fw/AIRDOS04/.pio/build/airdos04/firmware.hex "fw/build/fw_AIRDOS04_AIRDOS04.latest-${BT}.hex"
+          cp fw/AIRDOS04X/.pio/build/airdos04x/firmware.hex "fw/build/fw_AIRDOS04X_AIRDOS04X.latest-${BT}.hex"
 
-            if [ "$BUILD_TYPE" = "R" ]; then
-              NEXTRELEASE=`echo $NEXTRELEASE"+1"|bc`
-            fi
-            echo "#this file is maintained by github actions" > nextversion
-            echo "MAJOR ${CURMAJOR}" >> nextversion 
-            echo "MINOR ${CURMINOR}" >> nextversion 
-            echo "RELEASE ${NEXTRELEASE}" >> nextversion 
-            echo "BUILD ${NEXTBUILD}" >> nextversion 
+          # Update nextversion
+          NEXTBUILD=$(echo "${NEXTBUILD}+1" | bc)
+          if [ "$BUILD_TYPE" = "R" ]; then
+            NEXTRELEASE=$(echo "${NEXTRELEASE}+1" | bc)
+          fi
+          echo "#this file is maintained by github actions" > fw/AIRDOS04/nextversion
+          echo "MAJOR ${CURMAJOR}" >> fw/AIRDOS04/nextversion
+          echo "MINOR ${CURMINOR}" >> fw/AIRDOS04/nextversion
+          echo "RELEASE ${NEXTRELEASE}" >> fw/AIRDOS04/nextversion
+          echo "BUILD ${NEXTBUILD}" >> fw/AIRDOS04/nextversion
+          cp fw/AIRDOS04/nextversion fw/AIRDOS04X/nextversion
 
-            echo "// This file is overwritten by github actions, do not update it manually" > githash.h
-            echo "String githash = \"${{ github.sha }},User\";" >> githash.h
-            echo "#define GHRELEASE ${NEXTRELEASE}" >> githash.h
-            echo "#define GHBUILD 0" >> githash.h
-            echo "#define GHBUILDTYPE User" >> githash.h
-      
-            mv nextversion fw/${{ matrix.type }}/
-            mv githash.h fw/${{ matrix.type }}/
-            touch root
+          # Restore githash to User for local builds
+          echo "// This file is overwritten by github actions, do not update it manually" > fw/AIRDOS04/githash.h
+          echo "String githash = \"${{ github.sha }},User\";" >> fw/AIRDOS04/githash.h
+          echo "#define GHRELEASE ${NEXTRELEASE}" >> fw/AIRDOS04/githash.h
+          echo "#define GHBUILD 0" >> fw/AIRDOS04/githash.h
+          echo "#define GHBUILDTYPE User" >> fw/AIRDOS04/githash.h
+          cp fw/AIRDOS04/githash.h fw/AIRDOS04X/githash.h
 
-        - name: Store data
-          uses: actions/upload-artifact@v4
-          with:
-            name: fw_${{ matrix.type }}_${{ matrix.name }}
-            path: |
-              fw/build/*.hex
-              fw/${{ matrix.type }}/nextversion
-              fw/${{ matrix.type }}/githash.h
-              root
-            retention-days: 1
+          touch root
+
+      - name: Store data
+        uses: actions/upload-artifact@v4
+        with:
+          name: fw_build
+          path: |
+            fw/build/*.hex
+            fw/AIRDOS04/nextversion
+            fw/AIRDOS04/githash.h
+            fw/AIRDOS04X/nextversion
+            fw/AIRDOS04X/githash.h
+            root
+        retention-days: 1
 
   commit:
-    if: github.event_name != 'release' #&& github.event.action == 'created'
+    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     needs: [build]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        continue-on-error: true
         with:
-          submodules: True
+          submodules: true
 
       - run: |
-          rm fw/build -r || true
-          mkdir fw/build
-          mkdir fw/artifacts
+          rm -rf fw/build fw/artifacts
+          mkdir -p fw/build fw/artifacts
 
-      - name: Download a Build Artifact
+      - name: Download build artifact
         uses: actions/download-artifact@v4
         with:
-          path: 'fw/artifacts/'
+          name: fw_build
+          path: fw/artifacts/fw_build
 
-
-      - name: Update git hash
+      - name: Apply build results
         run: |
-          for d in `ls fw/artifacts`;
-          do
-            cp -R fw/artifacts/$d/* ./ ||true
-          done
-
-          rm -rf fw/artifacts
-          rm -rf root
-                          
+          cp -R fw/artifacts/fw_build/* ./
+          rm -rf fw/artifacts root
           git status
 
       - name: Get last commit message
@@ -173,21 +144,14 @@ jobs:
       - name: Generate file pattern
         id: file-pattern
         run: |
-          # Build file pattern dynamically based on what exists
           PATTERN="fw/build/*"
-          for dir in fw/*/githash.h; do
-            if [ -f "$dir" ]; then
-              TYPE=$(dirname "$dir" | cut -d'/' -f2)
-              PATTERN="$PATTERN fw/$TYPE/githash.h fw/$TYPE/nextversion"
-            fi
+          for dir in fw/AIRDOS04 fw/AIRDOS04X; do
+            [ -f "$dir/githash.h" ] && PATTERN="$PATTERN $dir/githash.h $dir/nextversion"
           done
           echo "pattern=$PATTERN" >> $GITHUB_OUTPUT
           echo "Generated pattern: $PATTERN"
-          
+
       - uses: stefanzweifel/git-auto-commit-action@v4
         with:
           commit_message: ${{ steps.last-commit-message.outputs.msg }}, extended build
           file_pattern: ${{ steps.file-pattern.outputs.pattern }}
-          #commit_options: '--amend --no-edit'
-          #push_options: '--force'
-
