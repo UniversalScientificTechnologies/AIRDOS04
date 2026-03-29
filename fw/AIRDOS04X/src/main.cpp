@@ -6,16 +6,13 @@
 
 #define MAJOR 1   // Data format
 #define MINOR 1   // Features
-#include "githash.h"
 
 //#define CALIBRATION
 
 #define XSTR(s) STR(s)
 #define STR(s) #s
 
-#define CHANNELS 1024 // number of channels in buffer for histogram 
-
-String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE); 
+#define CHANNELS 1024 // number of channels in buffer for histogram
 
 #define MAXFILESIZE MAX_MEASUREMENTS * BYTES_MEASUREMENT // in bytes, 4 MB per day, 28 MB per week, 122 MB per month
 #define MAX_MEASUREMENTS 11000ul // in measurement cycles, 5 500 per day
@@ -56,9 +53,12 @@ TX1/INT1 (D 11) PD3 17|        |24 PC2 (D 18) TCK
 */
 
 #include "wiring_private.h"
-#include <Wire.h>           
-#include <SD.h>             
+#include <Wire.h>
+#include <SD.h>
 #include <SPI.h>
+#include "githash.h"
+
+String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE);
 
 #define CONV        0    // PB0, MOLEX B0, D Q, ADC CONV signal
 #define DRESET      22   // PC6, MOLEX C0, D #Reset

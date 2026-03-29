@@ -6,7 +6,6 @@
 
 #define MAJOR 2   // Data format
 #define MINOR 0   // Features
-#include "githash.h"
 
 #define RADIATION_CLICK
 #define DEBUG
@@ -16,8 +15,6 @@
 
 #define CHANNELS 4 // number of channels in the buffer for histogram
 #define MAX_EVENTS 300 // number of events per integration time
-
-String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE);
 
 #define MAXFILESIZE MAX_MEASUREMENTS * BYTES_MEASUREMENT // in bytes, 4 MB per day, 28 MB per week, 122 MB per month
 #define MAX_MEASUREMENTS 11000ul // in measurement cycles, 5 500 per day
@@ -79,6 +76,9 @@ https://github.com/RobTillaart/MS5611
 #include <MS5611.h>
 #include <avr/wdt.h>
 #include "eeprom_layout.h"
+#include "githash.h"
+
+String FWversion = XSTR(MAJOR)"."XSTR(MINOR)"."XSTR(GHRELEASE)"-"XSTR(GHBUILD)"-"XSTR(GHBUILDTYPE);
 
 #define CONV        0    // PB0, MOLEX B0, D Q, ADC CONV signal
 #define DRESET      22   // PC6, MOLEX C0, D #Reset
