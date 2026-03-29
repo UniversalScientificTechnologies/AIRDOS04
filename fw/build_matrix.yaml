@@ -1,0 +1,8 @@
+- name: AIRDOS04
+  type: AIRDOS04
+  env: airdos04
+  versioned: "true"
+- name: AIRDOS04X
+  type: AIRDOS04X
+  env: airdos04x
+  versioned: "true"
