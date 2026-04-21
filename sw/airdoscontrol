@@ -12,9 +12,6 @@ device_ids = [
     (0x0403, 0x6030),  # VID/PID of original FT260
 ]
 
-I2C_INTERFACE = 0
-
-
 class FT260HidDriver():
 
     """
@@ -38,8 +35,8 @@ class FT260HidDriver():
     More detail documentation is at https://www.kernel.org/doc/Documentation/i2c/smbus-protocol
     """
 
-    def __init__(self, port, device):
-        self.port = port
+    def __init__(self, device):
+        #self.port = port
         #self.smbus = smbus
         self.driver_type = 'ft260_hid'
         self.device = device
@@ -328,7 +325,7 @@ addr_an_eepromsn = 0x5b
 
 def shutdown(device):
     print('Shutting down AIRDOS04')
-    c = FT260HidDriver(18, device)
+    c = FT260HidDriver(device)
 
     c.write_byte_data(addr_switch, 0x01, 0x03) # nastavit I2C switch do USB
 
