@@ -1162,7 +1162,7 @@ while(true)
   Serial1.println(rtc_current_time);
 
   // Read sync_time from internal EEPROM
-  eeprom::EepromRecord eeprom_record;
+  eeprom::EepromRecord eeprom_record = {};
   if (readEEPROMRecord(EEPROM_DIGITAL_CFG_ADDR, eeprom_record))
   {
     eeprom_sync_time = eeprom_record.sync_time;
@@ -1172,6 +1172,14 @@ while(true)
     Serial1.println(eeprom_record.init_time);
     Serial1.print("#EEPROM_SYNC_RTC_SECONDS,");
     Serial1.println(eeprom_record.sync_rtc_seconds);
+    Serial1.print("#DEVICE_NAME,");
+    for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
+    {
+      char c = eeprom_record.device_id[i];
+      if (c == '\0') break;
+      Serial1.print(c);
+    }
+    Serial1.println();
   }
   else
   {
@@ -1229,6 +1237,16 @@ while(true)
     uint8_t serialbyte = Wire.read(); // receive a byte
     if (serialbyte<0x10) dataString += "0";
     dataString += String(serialbyte,HEX);
+  }
+
+  // Device name from EEPROM (digital cfg, up to 10 chars, may not be null-terminated).
+  // Empty if EEPROM read failed (eeprom_record is zero-initialized).
+  dataString += "\r\n$NAME,";
+  for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
+  {
+    char c = eeprom_record.device_id[i];
+    if (c == '\0') break;
+    dataString += c;
   }
 
   dataString += "\r\n$DIG,"DIGTYPE",";

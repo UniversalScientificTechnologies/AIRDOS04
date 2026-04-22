@@ -24,6 +24,7 @@ The AIRDOS04 firmware writes data to the SD card (files `1.TXT`, `2.TXT`, …) a
 | Prefix | Description | When emitted | Est. max line length |
 |--------|-------------|--------------|----------------------|
 | `$DOS` | DOSimeter identification | At start of every log file | \~140 chars |
+| `$NAME` | Device name (from EEPROM) | At start of every log file | \~20 chars |
 | `$DIG` | Digital module info | At start of every log file | \~60 chars |
 | `$ADC` | Analog module info | At start of every log file | \~58 chars |
 | `$BATP` | Battery presence | At start of every log file | \~20 chars |
@@ -42,7 +43,7 @@ The AIRDOS04 firmware writes data to the SD card (files `1.TXT`, `2.TXT`, …) a
 
 The header is written at the beginning of every SD log file — both the initial file opened at startup and every subsequent file created when the previous one reaches `MAX_MEASUREMENTS` cycles. At boot it is also printed to Serial1. Lines within the header are separated by `\r\n`.
 
-The `$DOS`, `$DIG`, `$ADC`, `$BATP` and `$TIME` lines are identical across all files of a single measurement session (they reflect the state captured at the initial startup). The `$FSEQ` line is updated per-file to indicate the file's order within the measurement.
+The `$DOS`, `$NAME`, `$DIG`, `$ADC`, `$BATP` and `$TIME` lines are identical across all files of a single measurement session (they reflect the state captured at the initial startup). The `$FSEQ` line is updated per-file to indicate the file's order within the measurement.
 
 
 
@@ -77,7 +78,33 @@ $DOS,AIRDOS04C,2.0.0-0-User,0,a3e23b543a4de5dc3d057462bb6109bf3db0b44b,User,0910
 
 
 
-### 1.2 `$DIG` — Digital module
+### 1.2 `$NAME` — Device name
+
+User-assigned device name read from the digital configuration EEPROM (I²C addr. 0x50, `device_id` field of the EEPROM record, up to 10 bytes). Printed as an ASCII string, truncated at the first `\0` byte. If the EEPROM read fails at startup, the name is written as an empty string (the record is zero-initialized).
+
+**Format:**
+
+```
+$NAME,<device_name>
+```
+
+**Parameters:**
+
+| Parameter | Type / source | Description |
+|-----------|----------------|-------------|
+| device_name | String (≤ 10 chars) | Device name from EEPROM `device_id`. Empty if not programmed or EEPROM read failed. |
+
+**Example:**
+
+```
+$NAME,AD04-001
+```
+
+**Maximum line length (estimate):** prefix \~6 + 10 ⇒ **\~20 characters**.
+
+
+
+### 1.3 `$DIG` — Digital module
 
 Identifies the digital (battery/data) board and its configuration.
 
@@ -106,7 +133,7 @@ $DIG,BATDATUNIT01B,09104108741008520c0ca080a080005e,ffff
 
 
 
-### 1.3 `$ADC` — Analog module (ADC)
+### 1.4 `$ADC` — Analog module (ADC)
 
 Identifies the analog front-end board and its ADC configuration.
 
@@ -135,7 +162,7 @@ $ADC,USTSIPIN03A,0910410874100851c40ba080a08000b3,ffff
 
 
 
-### 1.4 `$BATP` — Battery presence
+### 1.5 `$BATP` — Battery presence
 
 Reports whether a battery was detected at startup and the voltage measured during detection (charger ADC).
 
@@ -162,7 +189,7 @@ $BATP,1,4150
 
 
 
-### 1.5 `$TIME` — Time and synchronization
+### 1.6 `$TIME` — Time and synchronization
 
 Reports RTC value, EEPROM sync data, computed Unix time, sync age, and human-readable UTC time.
 
@@ -192,7 +219,7 @@ $TIME,1234567,1708862400,1708863634,0,2025-02-25 14:30:34
 
 
 
-### 1.6 `$FSEQ` — File sequence within a measurement
+### 1.7 `$FSEQ` — File sequence within a measurement
 
 Reports the order of the current log file within a single measurement session and the Unix timestamp of the measurement start. The Unix timestamp is the same across all files of one session; `file_seq` starts at `0` for the first file opened at startup and is incremented by `1` each time the firmware rotates to a new file (after `MAX_MEASUREMENTS` integration cycles).
 
@@ -438,6 +465,7 @@ Lines starting with `#` are for diagnostics. They are sent on Serial1 only and a
 | `#EEPROM_SYNC_TIME,<t>` | `sync_time` read from EEPROM. |
 | `#EEPROM_INIT_TIME,<t>` | `init_time` from EEPROM. |
 | `#EEPROM_SYNC_RTC_SECONDS,<t>` | `sync_rtc_seconds` from EEPROM. |
+| `#DEVICE_NAME,<name>` | Device name (`device_id`) from EEPROM. |
 | `#EEPROM read failed` | Failed to read EEPROM record. |
 | `#SYNC_AGE,<sec>` | Sync age in seconds. |
 | `#CURRENT_UNIX_TIME,<t>` | Computed current Unix timestamp. |
