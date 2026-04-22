@@ -974,8 +974,27 @@ while(true)
 
   if (digitalRead(ACONNECT))  // Analog board disconnected
   {
+
+
+    pinMode(LED1, OUTPUT);
+    pinMode(LED2, OUTPUT);
+    pinMode(LED3, OUTPUT);
+  for( uint8_t n=0; n<5; n++)
+  {
+    delay(80);
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+    digitalWrite(LED3, HIGH);
+    delay(80);
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    digitalWrite(LED3, LOW);
+  }
+
     boolean SDreader = true;    // wanted SD reader mode
     boolean USBchanged = true;  // USB device need to be changed
+    uint32_t usbLedTickMs = 0;
+    bool usbSdLedState = false;
 
     wdt_enable(WDTO_2S);  // watchdog for preventing I2C hanging
     
@@ -994,14 +1013,72 @@ while(true)
     while(true)
     {
       uint8_t vbus;
+      uint8_t switch_status;
+      bool i2c_switch_to_usb = false;
+      bool usb_phy_connected = (digitalRead(ENUM_FTDI_USB) == LOW);
+
+      // USB mode LED indication:
+      // USB-SD  -> slow blink on LED1
+      // USB-I2C -> double blink on LED2+LED3
+      uint32_t nowMs = millis();
+      if (SDreader)
+      {
+        if ((uint32_t)(nowMs - usbLedTickMs) >= 400)
+        {
+          usbLedTickMs = nowMs;
+          usbSdLedState = !usbSdLedState;
+        }
+        digitalWrite(LED1, usbSdLedState ? HIGH : LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, LOW);
+      }
+      else
+      {
+        uint16_t phase = (uint16_t)(nowMs % 1000ul);
+        bool ledOn = (phase < 90) || ((phase >= 180) && (phase < 270));
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, ledOn ? HIGH : LOW);
+        digitalWrite(LED3, ledOn ? HIGH : LOW);
+      }
+
+      // Check PCA9541A control register (0x01):
+      // bit0 = MYBUS (master0), bit1 = NMYBUS (master1 mirrored).
+      // Different values mean master0 does not own bus => USB CH-1 is active.
+      Wire.beginTransmission((uint8_t)0x70);
+      Wire.write((uint8_t)0x01);
+      Wire.endTransmission();
+      Wire.requestFrom((uint8_t)0x70, (uint8_t)1);
+      if (Wire.available())
+      {
+        switch_status = Wire.read();
+        uint8_t bit0 = (switch_status & (1 << 0)) ? 1 : 0;
+        uint8_t bit1 = (switch_status & (1 << 1)) ? 1 : 0;
+        i2c_switch_to_usb = (bit0 != bit1);
+      }
+      else
+      {
+        // On read failure, assume USB mode to avoid false power-off.
+        i2c_switch_to_usb = true;
+      }
+      wdt_reset();
 
       {
-        // Is VBUS (USB) present?
-        Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
-        Wire.write(0x2D); // MSB 0.264 V/bit
-        Wire.endTransmission();
-        Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
-        vbus = Wire.read() & 0x7F;
+        // Never evaluate local power-off while USB cable is physically connected
+        // or while USB master owns I2C switch (USB-I2C mode).
+        if (!usb_phy_connected && !i2c_switch_to_usb)
+        {
+          // Is VBUS (USB) present?
+          Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
+          Wire.write(0x2D); // MSB 0.264 V/bit
+          Wire.endTransmission();
+          Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
+          vbus = Wire.read() & 0x7F;
+        }
+        else
+        {
+          // USB CH-1 owns I2C bus, skip local VBUS decision.
+          vbus = 0xFF;
+        }
       }
       wdt_reset();
 
@@ -1055,6 +1132,9 @@ while(true)
         USBchanged = false;
         if (SDreader)
         {
+          // USB-SD mode: keep external 3V3 I2C supply off.
+          digitalWrite(EXT_I2C_EN, LOW);
+
           // SD card reader ON
           digitalWrite(SDmode, HIGH);   // SD card reader oscilator on
           playModeChangeTone();          // Signal mode change to user
@@ -1067,6 +1147,9 @@ while(true)
         }
         else
         {
+          // USB-I2C mode: enable external 3V3 I2C supply.
+          digitalWrite(EXT_I2C_EN, HIGH);
+
           pinMode(LED1, OUTPUT);
           digitalWrite(LED1, LOW);
           playModeChangeTone();          // Signal mode change to user
@@ -1112,6 +1195,8 @@ while(true)
     digitalWrite(BUZZER, LOW);
   }
 
+  wdt_reset();
+
   Serial1.println("#Hmmm...");
 
   digitalWrite(DSET, LOW);       // Disable ADC
@@ -1122,20 +1207,25 @@ while(true)
   Wire.write((uint8_t)0x27); // Start register
   Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin
   Wire.write((uint8_t)0x97); // 0x28 stop-watch mode, no periodic interrupts, INTA in high-Z
+  Wire.endTransmission();
+
+  wdt_reset();
 
   // Initiation of RTC
-  /*Wire.beginTransmission(RTC_ADDR); // init clock
+  Wire.beginTransmission(RTC_ADDR); // init clock
   Wire.write((uint8_t)0x23); // Start register
   Wire.write((uint8_t)0x00); // 0x23
   Wire.write((uint8_t)0x00); // 0x24 Two's complement offset value
   Wire.write((uint8_t)0b00000101); // 0x25 Normal offset correction, disable low-jitter mode, set load caps to 6 pF
   Wire.write((uint8_t)0x00); // 0x26 Battery switch reg, same as after a reset
-  Wire.write((uint8_t)0x00); // 0x27 Enable CLK pin, using bits set in reg 0x28
+  Wire.write((uint8_t)0x03); // 0x27 Enable CLK pin, using bits set in reg 0x28
   Wire.write((uint8_t)0x97); // 0x28 stop watch mode, no periodic interrupts, CLK pin off
   Wire.write((uint8_t)0x00); // 0x29
   Wire.write((uint8_t)0x00); // 0x2a
   Wire.endTransmission();
-  Wire.beginTransmission(RTC_ADDR); // reset clock
+  
+
+  /*Wire.beginTransmission(RTC_ADDR); // reset clock
   Wire.write(0x2f);
   Wire.write(0x2c);
   Wire.endTransmission();
@@ -1152,6 +1242,8 @@ while(true)
   Wire.write((uint8_t)0x00); // 0x04
   Wire.write((uint8_t)0x00); // 0x05
   Wire.endTransmission();*/
+
+  wdt_disable();
 
   wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
 
@@ -1326,6 +1418,16 @@ while(true)
     if (c == '\0') break;
     dataString += c;
   }
+
+  // Calibration coefficients from analog board EEPROM
+  dataString += "\r\n$CALIB,";
+  dataString += String(eeprom_adc_record.calib[0], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib[1], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib[2], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib_ts);
 
   dataString += "\r\n$BATP,";
   dataString += batteryPresent ? "1" : "0";
