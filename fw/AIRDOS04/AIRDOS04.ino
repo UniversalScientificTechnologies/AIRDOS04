@@ -1161,7 +1161,7 @@ while(true)
   Serial1.print("#RTC_TIME,");
   Serial1.println(rtc_current_time);
 
-  // Read sync_time from internal EEPROM
+  // Read sync_time and device name from internal EEPROM (digital cfg)
   eeprom::EepromRecord eeprom_record = {};
   if (readEEPROMRecord(EEPROM_DIGITAL_CFG_ADDR, eeprom_record))
   {
@@ -1172,7 +1172,7 @@ while(true)
     Serial1.println(eeprom_record.init_time);
     Serial1.print("#EEPROM_SYNC_RTC_SECONDS,");
     Serial1.println(eeprom_record.sync_rtc_seconds);
-    Serial1.print("#DEVICE_NAME,");
+    Serial1.print("#DIG_NAME,");
     for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
     {
       char c = eeprom_record.device_id[i];
@@ -1185,6 +1185,24 @@ while(true)
   {
     Serial1.println("#EEPROM read failed");
     eeprom_sync_time = 0;
+  }
+
+  // Read device name from analog cfg EEPROM
+  eeprom::EepromRecord eeprom_adc_record = {};
+  if (readEEPROMRecord(EEPROM_ANALOG_CFG_ADDR, eeprom_adc_record))
+  {
+    Serial1.print("#ADC_NAME,");
+    for (uint8_t i = 0; i < sizeof(eeprom_adc_record.device_id); i++)
+    {
+      char c = eeprom_adc_record.device_id[i];
+      if (c == '\0') break;
+      Serial1.print(c);
+    }
+    Serial1.println();
+  }
+  else
+  {
+    Serial1.println("#EEPROM analog read failed");
   }
 
   // Calculate current Unix time: RTC_time + sync_time
@@ -1239,16 +1257,6 @@ while(true)
     dataString += String(serialbyte,HEX);
   }
 
-  // Device name from EEPROM (digital cfg, up to 10 chars, may not be null-terminated).
-  // Empty if EEPROM read failed (eeprom_record is zero-initialized).
-  dataString += "\r\n$NAME,";
-  for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
-  {
-    char c = eeprom_record.device_id[i];
-    if (c == '\0') break;
-    dataString += c;
-  }
-
   dataString += "\r\n$DIG,"DIGTYPE",";
   Wire.beginTransmission(EEPROM_DIGITAL_ADDR);                   // request SN from EEPROM - digital board
   Wire.write((int)0x08); // MSB
@@ -1276,6 +1284,16 @@ while(true)
   dataString += String(DIGconf1,HEX);
   dataString += String(DIGconf2,HEX);
 
+  // Digital module name from EEPROM digital cfg (up to 10 chars, may not be null-terminated).
+  // Empty if EEPROM read failed (eeprom_record is zero-initialized).
+  dataString += "\r\n$DIG_NAME,";
+  for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
+  {
+    char c = eeprom_record.device_id[i];
+    if (c == '\0') break;
+    dataString += c;
+  }
+
   dataString += "\r\n$ADC,"ADCTYPE",";
   Wire.beginTransmission(EEPROM_ANALOG_ADDR);                   // request SN from EEPROM - analog board
   Wire.write((int)0x08); // MSB
@@ -1298,6 +1316,16 @@ while(true)
   ADCconf2 = Wire.read();
   dataString += String(ADCconf1,HEX);
   dataString += String(ADCconf2,HEX);
+
+  // Analog module name from EEPROM analog cfg (up to 10 chars, may not be null-terminated).
+  // Empty if EEPROM read failed (eeprom_adc_record is zero-initialized).
+  dataString += "\r\n$ADC_NAME,";
+  for (uint8_t i = 0; i < sizeof(eeprom_adc_record.device_id); i++)
+  {
+    char c = eeprom_adc_record.device_id[i];
+    if (c == '\0') break;
+    dataString += c;
+  }
 
   dataString += "\r\n$BATP,";
   dataString += batteryPresent ? "1" : "0";
