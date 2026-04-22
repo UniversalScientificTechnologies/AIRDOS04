@@ -123,6 +123,9 @@ String filename = "";
 uint16_t fn;
 uint16_t count = 0;
 boolean SDinserted = true;
+String logHeader = "";              // Device identification header ($DOS, $DIG, $ADC, $BATP, $TIME)
+uint32_t measurement_start_unix_time = 0; // Unix timestamp of measurement start (for $FSEQ)
+uint16_t file_seq = 0;              // File sequence number within one measurement (0 = first file)
 uint16_t histogram[CHANNELS];
 uint16_t event_time[MAX_EVENTS];
 uint8_t event_time2[MAX_EVENTS];
@@ -857,8 +860,40 @@ void DataOut()
     count = 0;
     fn++;
     filename = String(fn) + ".TXT";
+    file_seq++;
     Serial1.print("#Filename,");
     Serial1.println(filename);
+
+    // Write detector identification header + $FSEQ line to the new file,
+    // so each rotated file can be identified on its own.
+    if (SDinserted)
+    {
+      if (!SD.begin(SS))
+      {
+        Serial1.println("#SD init false");
+        SDinserted = false;
+      }
+      else
+      {
+        File headerFile = SD.open(filename, FILE_WRITE);
+        if (headerFile)
+        {
+          String hdr = logHeader;
+          hdr += "\r\n$FSEQ,";
+          hdr += String(file_seq);
+          hdr += ",";
+          hdr += String(measurement_start_unix_time);
+          headerFile.println(hdr);
+          headerFile.close();
+        }
+        else
+        {
+          Serial1.println("#SD false");
+          SDinserted = false;
+        }
+        digitalWrite(SS, HIGH);       // Disable SD card
+      }
+    }
   }
   digitalWrite(SPI_MUX_SEL, HIGH); // ADC
   digitalWrite(SDpower, LOW);   // SD card power off
@@ -1278,6 +1313,17 @@ while(true)
   dataString += ":";
   if (second < 10) dataString += "0";
   dataString += String(second);
+
+  // Snapshot of the device identification header for reuse on later file rotations
+  logHeader = dataString;
+  measurement_start_unix_time = current_unix_time;
+  file_seq = 0;
+
+  // Append $FSEQ line to the first file header (file sequence 0, measurement start unix time)
+  dataString += "\r\n$FSEQ,";
+  dataString += String(file_seq);
+  dataString += ",";
+  dataString += String(measurement_start_unix_time);
 
   // Filename selection and initial write to SD card
   {

@@ -23,11 +23,12 @@ The AIRDOS04 firmware writes data to the SD card (files `1.TXT`, `2.TXT`, …) a
 
 | Prefix | Description | When emitted | Est. max line length |
 |--------|-------------|--------------|----------------------|
-| `$DOS` | DOSimeter identification | Once at file start | \~140 chars |
-| `$DIG` | Digital module info | Once at file start | \~60 chars |
-| `$ADC` | Analog module info | Once at file start | \~58 chars |
-| `$BATP` | Battery presence | Once at file start | \~20 chars |
-| `$TIME` | Time and sync info | Once at file start | \~65 chars |
+| `$DOS` | DOSimeter identification | At start of every log file | \~140 chars |
+| `$DIG` | Digital module info | At start of every log file | \~60 chars |
+| `$ADC` | Analog module info | At start of every log file | \~58 chars |
+| `$BATP` | Battery presence | At start of every log file | \~20 chars |
+| `$TIME` | Time and sync info | At start of every log file | \~65 chars |
+| `$FSEQ` | File sequence info | At start of every log file | \~25 chars |
 | `$RTCCHK` | RTC check/init status | On RTC check (start or when needed) | \~50 chars |
 | `$ENV` | Environmental sensors | Every 5 minutes | \~75 chars |
 | `$BATT` | Battery status | Every 30 minutes | \~65 chars |
@@ -37,9 +38,11 @@ The AIRDOS04 firmware writes data to the SD card (files `1.TXT`, `2.TXT`, …) a
 
 
 
-## 1. File header (written once at startup)
+## 1. File header (written at the start of every log file)
 
-The header is written once at the beginning of the SD file and to Serial1 at boot. Lines are separated by `\r\n`.
+The header is written at the beginning of every SD log file — both the initial file opened at startup and every subsequent file created when the previous one reaches `MAX_MEASUREMENTS` cycles. At boot it is also printed to Serial1. Lines within the header are separated by `\r\n`.
+
+The `$DOS`, `$DIG`, `$ADC`, `$BATP` and `$TIME` lines are identical across all files of a single measurement session (they reflect the state captured at the initial startup). The `$FSEQ` line is updated per-file to indicate the file's order within the measurement.
 
 
 
@@ -186,6 +189,34 @@ $TIME,1234567,1708862400,1708863634,0,2025-02-25 14:30:34
 ```
 
 **Maximum line length (estimate):** prefix \~6 + 4×10 (four 32-bit values) + 4 commas + 19 (datetime) ⇒ **\~65 characters**.
+
+
+
+### 1.6 `$FSEQ` — File sequence within a measurement
+
+Reports the order of the current log file within a single measurement session and the Unix timestamp of the measurement start. The Unix timestamp is the same across all files of one session; `file_seq` starts at `0` for the first file opened at startup and is incremented by `1` each time the firmware rotates to a new file (after `MAX_MEASUREMENTS` integration cycles).
+
+**Format:**
+
+```
+$FSEQ,<file_seq>,<measurement_start_unix_time>
+```
+
+**Parameters:**
+
+| Parameter | Type / source | Description |
+|-----------|----------------|-------------|
+| file_seq | uint16_t | Index of the log file within the current measurement session. `0` for the first file, `1` for the second, and so on. |
+| measurement_start_unix_time | uint32_t | Computed current Unix time at startup (same as `current_unix_time` in `$TIME`). `0` if the device was not time-synced. |
+
+**Example:**
+
+```
+$FSEQ,0,1708863634
+$FSEQ,1,1708863634
+```
+
+**Maximum line length (estimate):** prefix \~6 + 5 (file_seq) + 1 + 10 (uint32) ⇒ **\~25 characters**.
 
 
 
