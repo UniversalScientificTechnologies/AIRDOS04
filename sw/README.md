@@ -12,7 +12,7 @@ Download and save the [airdoscontrol](https://raw.githubusercontent.com/Universa
 
     chmod u+x airdoscontrol
 
-The airdos control uses [hidapi library](https://pypi.org/project/hidapi/) to communicate with AIRDOS, therefore please check that hidapi is installed or install it by 
+The airdos control uses [hidapi library](https://pypi.org/project/hidapi/) to communicate with AIRDOS, please check that hidapi is installed or install it by 
 
     sudo python3 -m pip install hidapi 
 
@@ -24,6 +24,7 @@ In case you do not want tu use [sudo](https://www.howtoforge.com/sudo-beginners-
 ACTION=="add", SUBSYSTEM=="usb", ATTR{idVendor}=="0403", ATTR{idProduct}=="6030", OPTIONS+="ignore_device"
 KERNEL=="hidraw*", ATTRS{idVendor}=="0403", MODE="6030", GROUP="plugdev"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="7aa0", GROUP="plugdev", MODE="0660"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1209", ATTRS{idProduct}=="7aa0", GROUP="plugdev", MODE="0666"
 ```
 Then use `sudo udevadm control --reload-rules && sudo udevadm trigger` command to update udev access rights. 
 
@@ -37,7 +38,7 @@ Connect the AIRDOS04 to the computer using the USB-C to USB-A cable. NOTE: The B
 
     airdoscontrol shutdown
 
-This command would be straightforward with no additional options required. The AIRDOS is then powered off immediately after disconnection of the USB cable. It could be powered on only by a button or plugging the USB-C cable back.  If the USB-C power is removed in the middle of writing to internal storage. It is theoretically possible to corrupt the filesystem on the internal SD card. Because in case of removing the USB-C cable after the shutdown command, the power is removed instantly, and the write cycle may not be completed.  The possibility of corruption could be easily avoided by unplugging the USB-C cable after the blink of the write indication LED. (In that case, there is integration time, e.g. 10 seconds to completely safely unplug the USB-C cable)
+This command would be straightforward with no additional options required. The AIRDOS is then powered off immediately after disconnection of the USB cable. It could be powered on only by pressing the button or plugging the USB-C cable back.  If the USB-C power is removed in the middle of writing to internal storage. It is theoretically possible to corrupt the filesystem on the internal SD card. Because in case of removing the USB-C cable after the shutdown command, the power is removed instantly, and the write cycle may not be completed.  The possibility of corruption could be easily avoided by unplugging the USB-C cable after the blink of the write indication LED. (In that case, there is integration time, e.g. 10 seconds to completely safely unplug the USB-C cable)
 
 Please look in the [AIRDOS manual](https://docs.dos.ust.cz/airdos/AIRDOS04) for details.
 
