@@ -974,10 +974,10 @@ while(true)
       {
         digitalWrite(LED2, digitalRead(ACONNECT));
         // discharge analog board detection signal
-        //Wire.beginTransmission(RTC_ADDR); // 1 kHz to #INTA
-        //Wire.write(0x28);
-        //Wire.write(0x95);             // COF
-        //Wire.endTransmission();
+        Wire.beginTransmission(RTC_ADDR); // 1 kHz to #INTA
+        Wire.write(0x28);
+        Wire.write(0x95);             // COF
+        Wire.endTransmission();
 
         wdt_reset();
         delay(1000); // Vaiting for capacitor discharge
@@ -1000,7 +1000,7 @@ while(true)
         Wire.beginTransmission(RTC_ADDR); // High-Z on #INTA
         Wire.write((uint8_t)0x27); // Start register
         Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
-        //Wire.write(0x95);             // COF
+        Wire.write(0x95);             // COF
         Wire.endTransmission();
 
         // Power off
@@ -1399,7 +1399,7 @@ inline void PostIntegration()
     Wire.beginTransmission(RTC_ADDR); // 1024 Hz to #INTA
     Wire.write((uint8_t)0x27); // Start register
     Wire.write((uint8_t)0x00); // 0x27 Enable CLX output on INTA pin, using bits set in reg 0x28
-    //Wire.write(0x95);             // COF
+    Wire.write(0x95);             // COF
     Wire.endTransmission();
 
     delay(3000);
@@ -1417,7 +1417,7 @@ inline void PostIntegration()
     Wire.beginTransmission(RTC_ADDR); // High-Z on #INTA
     Wire.write((uint8_t)0x27); // Start register
     Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin.
-    //Wire.write(0x95);             // COF
+    Wire.write(0x95);             // COF
     Wire.endTransmission();
 
 
