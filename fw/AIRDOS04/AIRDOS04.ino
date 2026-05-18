@@ -123,7 +123,8 @@ String filename = "";
 uint16_t fn;
 uint16_t count = 0;
 boolean SDinserted = true;
-String logHeader = "";              // Device identification header ($DOS, $DIG, $ADC, $BATP, $TIME)
+String logHeader = "";              // Device identification header ($DOS, $DIG, $ADC, $BATP); $TIME is appended fresh per file
+uint32_t eeprom_sync_rtc_seconds = 0; // RTC seconds at last sync, used to compute sync_age on file rotation
 uint32_t measurement_start_unix_time = 0; // Unix timestamp of measurement start (for $FSEQ)
 uint16_t file_seq = 0;              // File sequence number within one measurement (0 = first file)
 uint16_t histogram[CHANNELS];
@@ -431,6 +432,51 @@ void unixToDateTime(uint32_t unix_time, uint16_t &year, uint8_t &month, uint8_t 
     month++;
   }
   day = days + 1;
+}
+
+// Build a fresh $TIME line from the current RTC reading. Called both for the
+// initial log header and on each file rotation so the timestamp reflects when
+// the file was actually created, not when the measurement started.
+void appendTimeLine(String &s)
+{
+  readRTC();
+  rtc_current_time = tm;
+  uint32_t current_unix_time = 0;
+  uint32_t sync_age = 0;
+  if (eeprom_sync_time > 0)
+  {
+    current_unix_time = rtc_current_time + eeprom_sync_time;
+    sync_age = rtc_current_time - eeprom_sync_rtc_seconds;
+  }
+  uint16_t year;
+  uint8_t month, day, hour, minute, second;
+  unixToDateTime(current_unix_time, year, month, day, hour, minute, second);
+
+  s += "\r\n$TIME,";
+  s += String(rtc_current_time);
+  s += ",";
+  s += String(eeprom_sync_time);
+  s += ",";
+  s += String(current_unix_time);
+  s += ",";
+  s += String(sync_age);
+  s += ",";
+  s += String(year);
+  s += "-";
+  if (month < 10) s += "0";
+  s += String(month);
+  s += "-";
+  if (day < 10) s += "0";
+  s += String(day);
+  s += " ";
+  if (hour < 10) s += "0";
+  s += String(hour);
+  s += ":";
+  if (minute < 10) s += "0";
+  s += String(minute);
+  s += ":";
+  if (second < 10) s += "0";
+  s += String(second);
 }
 
 // Read EEPROM structure from internal EEPROM
@@ -879,6 +925,7 @@ void DataOut()
         if (headerFile)
         {
           String hdr = logHeader;
+          appendTimeLine(hdr);
           hdr += "\r\n$FSEQ,";
           hdr += String(file_seq);
           hdr += ",";
@@ -1258,6 +1305,7 @@ while(true)
   if (readEEPROMRecord(EEPROM_DIGITAL_CFG_ADDR, eeprom_record))
   {
     eeprom_sync_time = eeprom_record.sync_time;
+    eeprom_sync_rtc_seconds = eeprom_record.sync_rtc_seconds;
     Serial1.print("#EEPROM_SYNC_TIME,");
     Serial1.println(eeprom_sync_time);
     Serial1.print("#EEPROM_INIT_TIME,");
@@ -1277,6 +1325,7 @@ while(true)
   {
     Serial1.println("#EEPROM read failed");
     eeprom_sync_time = 0;
+    eeprom_sync_rtc_seconds = 0;
   }
 
   // Read device name from analog cfg EEPROM
@@ -1434,36 +1483,11 @@ while(true)
   dataString += ",";
   dataString += String(detectedBatteryMv);
 
-  // Add time information to log header
-  dataString += "\r\n$TIME,";
-  dataString += String(rtc_current_time);  // RTC time in seconds
-  dataString += ",";
-  dataString += String(eeprom_sync_time);  // Last sync time from EEPROM
-  dataString += ",";
-  dataString += String(current_unix_time); // Current Unix timestamp
-  dataString += ",";
-  dataString += String(sync_age);          // Age of synchronization in seconds
-  dataString += ",";
-  // Human readable time: YYYY-MM-DD HH:MM:SS
-  dataString += String(year);
-  dataString += "-";
-  if (month < 10) dataString += "0";
-  dataString += String(month);
-  dataString += "-";
-  if (day < 10) dataString += "0";
-  dataString += String(day);
-  dataString += " ";
-  if (hour < 10) dataString += "0";
-  dataString += String(hour);
-  dataString += ":";
-  if (minute < 10) dataString += "0";
-  dataString += String(minute);
-  dataString += ":";
-  if (second < 10) dataString += "0";
-  dataString += String(second);
-
-  // Snapshot of the device identification header for reuse on later file rotations
+  // Snapshot of the device identification header (without $TIME) for reuse on
+  // later file rotations. $TIME is appended fresh per file from the RTC.
   logHeader = dataString;
+
+  appendTimeLine(dataString);
   measurement_start_unix_time = current_unix_time;
   file_seq = 0;
 
