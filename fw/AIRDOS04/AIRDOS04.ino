@@ -123,6 +123,10 @@ String filename = "";
 uint16_t fn;
 uint16_t count = 0;
 boolean SDinserted = true;
+String logHeader = "";              // Device identification header ($DOS, $DIG, $ADC, $BATP); $TIME is appended fresh per file
+uint32_t eeprom_sync_rtc_seconds = 0; // RTC seconds at last sync, used to compute sync_age on file rotation
+uint32_t measurement_start_unix_time = 0; // Unix timestamp of measurement start (for $FSEQ)
+uint16_t file_seq = 0;              // File sequence number within one measurement (0 = first file)
 uint16_t histogram[CHANNELS];
 uint16_t event_time[MAX_EVENTS];
 uint8_t event_time2[MAX_EVENTS];
@@ -428,6 +432,51 @@ void unixToDateTime(uint32_t unix_time, uint16_t &year, uint8_t &month, uint8_t 
     month++;
   }
   day = days + 1;
+}
+
+// Build a fresh $TIME line from the current RTC reading. Called both for the
+// initial log header and on each file rotation so the timestamp reflects when
+// the file was actually created, not when the measurement started.
+void appendTimeLine(String &s)
+{
+  readRTC();
+  rtc_current_time = tm;
+  uint32_t current_unix_time = 0;
+  uint32_t sync_age = 0;
+  if (eeprom_sync_time > 0)
+  {
+    current_unix_time = rtc_current_time + eeprom_sync_time;
+    sync_age = rtc_current_time - eeprom_sync_rtc_seconds;
+  }
+  uint16_t year;
+  uint8_t month, day, hour, minute, second;
+  unixToDateTime(current_unix_time, year, month, day, hour, minute, second);
+
+  s += "\r\n$TIME,";
+  s += String(rtc_current_time);
+  s += ",";
+  s += String(eeprom_sync_time);
+  s += ",";
+  s += String(current_unix_time);
+  s += ",";
+  s += String(sync_age);
+  s += ",";
+  s += String(year);
+  s += "-";
+  if (month < 10) s += "0";
+  s += String(month);
+  s += "-";
+  if (day < 10) s += "0";
+  s += String(day);
+  s += " ";
+  if (hour < 10) s += "0";
+  s += String(hour);
+  s += ":";
+  if (minute < 10) s += "0";
+  s += String(minute);
+  s += ":";
+  if (second < 10) s += "0";
+  s += String(second);
 }
 
 // Read EEPROM structure from internal EEPROM
@@ -857,8 +906,41 @@ void DataOut()
     count = 0;
     fn++;
     filename = String(fn) + ".TXT";
+    file_seq++;
     Serial1.print("#Filename,");
     Serial1.println(filename);
+
+    // Write detector identification header + $FSEQ line to the new file,
+    // so each rotated file can be identified on its own.
+    if (SDinserted)
+    {
+      if (!SD.begin(SS))
+      {
+        Serial1.println("#SD init false");
+        SDinserted = false;
+      }
+      else
+      {
+        File headerFile = SD.open(filename, FILE_WRITE);
+        if (headerFile)
+        {
+          String hdr = logHeader;
+          appendTimeLine(hdr);
+          hdr += "\r\n$FSEQ,";
+          hdr += String(file_seq);
+          hdr += ",";
+          hdr += String(measurement_start_unix_time);
+          headerFile.println(hdr);
+          headerFile.close();
+        }
+        else
+        {
+          Serial1.println("#SD false");
+          SDinserted = false;
+        }
+        digitalWrite(SS, HIGH);       // Disable SD card
+      }
+    }
   }
   digitalWrite(SPI_MUX_SEL, HIGH); // ADC
   digitalWrite(SDpower, LOW);   // SD card power off
@@ -939,8 +1021,27 @@ while(true)
 
   if (digitalRead(ACONNECT))  // Analog board disconnected
   {
+
+
+    pinMode(LED1, OUTPUT);
+    pinMode(LED2, OUTPUT);
+    pinMode(LED3, OUTPUT);
+  for( uint8_t n=0; n<5; n++)
+  {
+    delay(80);
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+    digitalWrite(LED3, HIGH);
+    delay(80);
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    digitalWrite(LED3, LOW);
+  }
+
     boolean SDreader = true;    // wanted SD reader mode
     boolean USBchanged = true;  // USB device need to be changed
+    uint32_t usbLedTickMs = 0;
+    bool usbSdLedState = false;
 
     wdt_enable(WDTO_2S);  // watchdog for preventing I2C hanging
     
@@ -959,14 +1060,72 @@ while(true)
     while(true)
     {
       uint8_t vbus;
+      uint8_t switch_status;
+      bool i2c_switch_to_usb = false;
+      bool usb_phy_connected = (digitalRead(ENUM_FTDI_USB) == LOW);
+
+      // USB mode LED indication:
+      // USB-SD  -> slow blink on LED1
+      // USB-I2C -> double blink on LED2+LED3
+      uint32_t nowMs = millis();
+      if (SDreader)
+      {
+        if ((uint32_t)(nowMs - usbLedTickMs) >= 400)
+        {
+          usbLedTickMs = nowMs;
+          usbSdLedState = !usbSdLedState;
+        }
+        digitalWrite(LED1, usbSdLedState ? HIGH : LOW);
+        digitalWrite(LED2, LOW);
+        digitalWrite(LED3, LOW);
+      }
+      else
+      {
+        uint16_t phase = (uint16_t)(nowMs % 1000ul);
+        bool ledOn = (phase < 90) || ((phase >= 180) && (phase < 270));
+        digitalWrite(LED1, LOW);
+        digitalWrite(LED2, ledOn ? HIGH : LOW);
+        digitalWrite(LED3, ledOn ? HIGH : LOW);
+      }
+
+      // Check PCA9541A control register (0x01):
+      // bit0 = MYBUS (master0), bit1 = NMYBUS (master1 mirrored).
+      // Different values mean master0 does not own bus => USB CH-1 is active.
+      Wire.beginTransmission((uint8_t)0x70);
+      Wire.write((uint8_t)0x01);
+      Wire.endTransmission();
+      Wire.requestFrom((uint8_t)0x70, (uint8_t)1);
+      if (Wire.available())
+      {
+        switch_status = Wire.read();
+        uint8_t bit0 = (switch_status & (1 << 0)) ? 1 : 0;
+        uint8_t bit1 = (switch_status & (1 << 1)) ? 1 : 0;
+        i2c_switch_to_usb = (bit0 != bit1);
+      }
+      else
+      {
+        // On read failure, assume USB mode to avoid false power-off.
+        i2c_switch_to_usb = true;
+      }
+      wdt_reset();
 
       {
-        // Is VBUS (USB) present?
-        Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
-        Wire.write(0x2D); // MSB 0.264 V/bit
-        Wire.endTransmission();
-        Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
-        vbus = Wire.read() & 0x7F;
+        // Never evaluate local power-off while USB cable is physically connected
+        // or while USB master owns I2C switch (USB-I2C mode).
+        if (!usb_phy_connected && !i2c_switch_to_usb)
+        {
+          // Is VBUS (USB) present?
+          Wire.beginTransmission(CHARGER_ADDR);      // ADC of VBUS
+          Wire.write(0x2D); // MSB 0.264 V/bit
+          Wire.endTransmission();
+          Wire.requestFrom((uint8_t)CHARGER_ADDR, (uint8_t)1);
+          vbus = Wire.read() & 0x7F;
+        }
+        else
+        {
+          // USB CH-1 owns I2C bus, skip local VBUS decision.
+          vbus = 0xFF;
+        }
       }
       wdt_reset();
 
@@ -1020,6 +1179,9 @@ while(true)
         USBchanged = false;
         if (SDreader)
         {
+          // USB-SD mode: keep external 3V3 I2C supply off.
+          digitalWrite(EXT_I2C_EN, LOW);
+
           // SD card reader ON
           digitalWrite(SDmode, HIGH);   // SD card reader oscilator on
           playModeChangeTone();          // Signal mode change to user
@@ -1032,6 +1194,9 @@ while(true)
         }
         else
         {
+          // USB-I2C mode: enable external 3V3 I2C supply.
+          digitalWrite(EXT_I2C_EN, HIGH);
+
           pinMode(LED1, OUTPUT);
           digitalWrite(LED1, LOW);
           playModeChangeTone();          // Signal mode change to user
@@ -1077,6 +1242,8 @@ while(true)
     digitalWrite(BUZZER, LOW);
   }
 
+  wdt_reset();
+
   Serial1.println("#Hmmm...");
 
   digitalWrite(DSET, LOW);       // Disable ADC
@@ -1087,20 +1254,25 @@ while(true)
   Wire.write((uint8_t)0x27); // Start register
   Wire.write((uint8_t)0x03); // 0x27 High-Z on INTA pin
   Wire.write((uint8_t)0x97); // 0x28 stop-watch mode, no periodic interrupts, INTA in high-Z
+  Wire.endTransmission();
+
+  wdt_reset();
 
   // Initiation of RTC
-  /*Wire.beginTransmission(RTC_ADDR); // init clock
+  Wire.beginTransmission(RTC_ADDR); // init clock
   Wire.write((uint8_t)0x23); // Start register
   Wire.write((uint8_t)0x00); // 0x23
   Wire.write((uint8_t)0x00); // 0x24 Two's complement offset value
   Wire.write((uint8_t)0b00000101); // 0x25 Normal offset correction, disable low-jitter mode, set load caps to 6 pF
   Wire.write((uint8_t)0x00); // 0x26 Battery switch reg, same as after a reset
-  Wire.write((uint8_t)0x00); // 0x27 Enable CLK pin, using bits set in reg 0x28
+  Wire.write((uint8_t)0x03); // 0x27 Enable CLK pin, using bits set in reg 0x28
   Wire.write((uint8_t)0x97); // 0x28 stop watch mode, no periodic interrupts, CLK pin off
   Wire.write((uint8_t)0x00); // 0x29
   Wire.write((uint8_t)0x00); // 0x2a
   Wire.endTransmission();
-  Wire.beginTransmission(RTC_ADDR); // reset clock
+  
+
+  /*Wire.beginTransmission(RTC_ADDR); // reset clock
   Wire.write(0x2f);
   Wire.write(0x2c);
   Wire.endTransmission();
@@ -1118,6 +1290,8 @@ while(true)
   Wire.write((uint8_t)0x00); // 0x05
   Wire.endTransmission();*/
 
+  wdt_disable();
+
   wdt_enable(WDTO_8S);  // watchdog for preventing I2C hanging
 
   // Read current RTC time
@@ -1126,22 +1300,50 @@ while(true)
   Serial1.print("#RTC_TIME,");
   Serial1.println(rtc_current_time);
 
-  // Read sync_time from internal EEPROM
-  eeprom::EepromRecord eeprom_record;
+  // Read sync_time and device name from internal EEPROM (digital cfg)
+  eeprom::EepromRecord eeprom_record = {};
   if (readEEPROMRecord(EEPROM_DIGITAL_CFG_ADDR, eeprom_record))
   {
     eeprom_sync_time = eeprom_record.sync_time;
+    eeprom_sync_rtc_seconds = eeprom_record.sync_rtc_seconds;
     Serial1.print("#EEPROM_SYNC_TIME,");
     Serial1.println(eeprom_sync_time);
     Serial1.print("#EEPROM_INIT_TIME,");
     Serial1.println(eeprom_record.init_time);
     Serial1.print("#EEPROM_SYNC_RTC_SECONDS,");
     Serial1.println(eeprom_record.sync_rtc_seconds);
+    Serial1.print("#DIG_NAME,");
+    for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
+    {
+      char c = eeprom_record.device_id[i];
+      if (c == '\0') break;
+      Serial1.print(c);
+    }
+    Serial1.println();
   }
   else
   {
     Serial1.println("#EEPROM read failed");
     eeprom_sync_time = 0;
+    eeprom_sync_rtc_seconds = 0;
+  }
+
+  // Read device name from analog cfg EEPROM
+  eeprom::EepromRecord eeprom_adc_record = {};
+  if (readEEPROMRecord(EEPROM_ANALOG_CFG_ADDR, eeprom_adc_record))
+  {
+    Serial1.print("#ADC_NAME,");
+    for (uint8_t i = 0; i < sizeof(eeprom_adc_record.device_id); i++)
+    {
+      char c = eeprom_adc_record.device_id[i];
+      if (c == '\0') break;
+      Serial1.print(c);
+    }
+    Serial1.println();
+  }
+  else
+  {
+    Serial1.println("#EEPROM analog read failed");
   }
 
   // Calculate current Unix time: RTC_time + sync_time
@@ -1223,6 +1425,16 @@ while(true)
   dataString += String(DIGconf1,HEX);
   dataString += String(DIGconf2,HEX);
 
+  // Digital module name from EEPROM digital cfg (up to 10 chars, may not be null-terminated).
+  // Empty if EEPROM read failed (eeprom_record is zero-initialized).
+  dataString += "\r\n$DIG_NAME,";
+  for (uint8_t i = 0; i < sizeof(eeprom_record.device_id); i++)
+  {
+    char c = eeprom_record.device_id[i];
+    if (c == '\0') break;
+    dataString += c;
+  }
+
   dataString += "\r\n$ADC,"ADCTYPE",";
   Wire.beginTransmission(EEPROM_ANALOG_ADDR);                   // request SN from EEPROM - analog board
   Wire.write((int)0x08); // MSB
@@ -1246,38 +1458,44 @@ while(true)
   dataString += String(ADCconf1,HEX);
   dataString += String(ADCconf2,HEX);
 
+  // Analog module name from EEPROM analog cfg (up to 10 chars, may not be null-terminated).
+  // Empty if EEPROM read failed (eeprom_adc_record is zero-initialized).
+  dataString += "\r\n$ADC_NAME,";
+  for (uint8_t i = 0; i < sizeof(eeprom_adc_record.device_id); i++)
+  {
+    char c = eeprom_adc_record.device_id[i];
+    if (c == '\0') break;
+    dataString += c;
+  }
+
+  // Calibration coefficients from analog board EEPROM
+  dataString += "\r\n$CALIB,";
+  dataString += String(eeprom_adc_record.calib[0], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib[1], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib[2], 6);
+  dataString += ",";
+  dataString += String(eeprom_adc_record.calib_ts);
+
   dataString += "\r\n$BATP,";
   dataString += batteryPresent ? "1" : "0";
   dataString += ",";
   dataString += String(detectedBatteryMv);
 
-  // Add time information to log header
-  dataString += "\r\n$TIME,";
-  dataString += String(rtc_current_time);  // RTC time in seconds
+  // Snapshot of the device identification header (without $TIME) for reuse on
+  // later file rotations. $TIME is appended fresh per file from the RTC.
+  logHeader = dataString;
+
+  appendTimeLine(dataString);
+  measurement_start_unix_time = current_unix_time;
+  file_seq = 0;
+
+  // Append $FSEQ line to the first file header (file sequence 0, measurement start unix time)
+  dataString += "\r\n$FSEQ,";
+  dataString += String(file_seq);
   dataString += ",";
-  dataString += String(eeprom_sync_time);  // Last sync time from EEPROM
-  dataString += ",";
-  dataString += String(current_unix_time); // Current Unix timestamp
-  dataString += ",";
-  dataString += String(sync_age);          // Age of synchronization in seconds
-  dataString += ",";
-  // Human readable time: YYYY-MM-DD HH:MM:SS
-  dataString += String(year);
-  dataString += "-";
-  if (month < 10) dataString += "0";
-  dataString += String(month);
-  dataString += "-";
-  if (day < 10) dataString += "0";
-  dataString += String(day);
-  dataString += " ";
-  if (hour < 10) dataString += "0";
-  dataString += String(hour);
-  dataString += ":";
-  if (minute < 10) dataString += "0";
-  dataString += String(minute);
-  dataString += ":";
-  if (second < 10) dataString += "0";
-  dataString += String(second);
+  dataString += String(measurement_start_unix_time);
 
   // Filename selection and initial write to SD card
   {
