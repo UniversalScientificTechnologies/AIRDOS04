@@ -183,11 +183,33 @@ jobs:
           done
           echo "pattern=$PATTERN" >> $GITHUB_OUTPUT
           echo "Generated pattern: $PATTERN"
+
+      - name: Configure git signing
+        id: git-singing
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SIGNING_KEY }}" > ~/.ssh/signing_key
+          chmod 600 ~/.ssh/signing_key
+
+          ssh-keygen -y -f ~/.ssh/signing_key > ~/.ssh/signing_key.pub
+
+          git config --global user.name "slimonslimon"
+          git config --global user.email "vithanousek@seznam.cz"
+
+          git config --global gpg.format ssh
+          git config --global user.signingkey ~/.ssh/signing_key.pub
+          git config --global commit.gpgsign true
+
           
-      - uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: ${{ steps.last-commit-message.outputs.msg }}, extended build
-          file_pattern: ${{ steps.file-pattern.outputs.pattern }}
-          #commit_options: '--amend --no-edit'
-          #push_options: '--force'
+
+      - name: Commit changes
+        id: commit-it
+        run: |
+          git add ${{ steps.file-pattern.outputs.pattern }}
+
+          git diff --cached --quiet && exit 0
+
+          git commit -m "${{ steps.last-commit-message.outputs.msg }}, extended build"
+          git remote -v
+          git push
 
