@@ -2,9 +2,11 @@ name: Build firmware
 
 on:
   push:
+    branches-ignore:
+      - 'AIRDOS04?' 
     paths:
-    - 'fw/**'
-    - '*/*.yml'    
+      - 'fw/**'
+      - '*/*.yml'    
   workflow_dispatch:
   workflow_call:
     inputs:
