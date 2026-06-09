@@ -3,7 +3,7 @@ name: Build firmware
 on:
   push:
     branches-ignore:
-      - 'AIRDOS04?' 
+      - 'AIRDOS04C' 
     paths:
       - 'fw/**'
       - '*/*.yml'    
