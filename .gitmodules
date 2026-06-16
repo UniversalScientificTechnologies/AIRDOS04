@@ -10,3 +10,6 @@
 [submodule "hw/modules/USTSIPIN03"]
 	path = hw/modules/USTSIPIN03
 	url = git@github.com:ust-modules/USTSIPIN03.git
+[submodule "fw"]
+	path = fw
+	url = git@github.com:UniversalScientificTechnologies/BATDATUNIT01-AIRDOS-FW.git
